@@ -60,3 +60,15 @@ CREATE TABLE IF NOT EXISTS recommend_result (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_t (t)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS track_watch (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  dm VARCHAR(10) NOT NULL,
+  track_date DATE NOT NULL COMMENT '跟踪日期',
+  status VARCHAR(20) DEFAULT '观察中' COMMENT '观察中/达标/不达标',
+  entry_price DECIMAL(10,2) COMMENT '建议买入价',
+  stop_loss DECIMAL(10,2) COMMENT '止损价',
+  current_price DECIMAL(10,2) COMMENT '最新价',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_date (track_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

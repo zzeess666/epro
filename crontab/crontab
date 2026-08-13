@@ -1,0 +1,5 @@
+# 数据同步 + 策略 + 推荐（交易日 17:00 后）
+0 17 * * 1-5  cd /www/wwwroot/epro && .venv/bin/python scripts/sync_daily_kline.py && .venv/bin/python scripts/calc_indicator.py && .venv/bin/python scripts/run_strategy.py && .venv/bin/python scripts/run_backtest.py && .venv/bin/python scripts/run_recommend.py
+
+# 次日盘中跟踪（每10分钟，仅交易日盘中）
+*/10 9-15 * * 1-5  cd /www/wwwroot/epro && .venv/bin/python scripts/run_track.py
