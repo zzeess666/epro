@@ -19,3 +19,30 @@ CREATE TABLE IF NOT EXISTS daily_kline (
   ma5 DECIMAL(10,2), ma10 DECIMAL(10,2), ma20 DECIMAL(10,2), ma60 DECIMAL(10,2),
   PRIMARY KEY (dm, t)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS strategy_signal (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  dm VARCHAR(10) NOT NULL,
+  t DATE NOT NULL,
+  strategy VARCHAR(10) NOT NULL COMMENT 'A/B/C',
+  score DECIMAL(10,2),
+  entry_price DECIMAL(10,2),
+  stop_loss DECIMAL(10,2),
+  detail TEXT COMMENT 'JSON 信号详情',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_dm_t (dm, t)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS backtest_result (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  strategy VARCHAR(10) NOT NULL,
+  start_date DATE,
+  end_date DATE,
+  hold_days INT,
+  sample_count INT,
+  win_count INT,
+  win_rate DECIMAL(5,2),
+  avg_return DECIMAL(10,2),
+  avg_loss DECIMAL(10,2),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
