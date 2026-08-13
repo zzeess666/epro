@@ -6,8 +6,9 @@ from typing import Any, Optional
 
 from src.strategy.base_strategy import BaseStrategy, Signal, avg_volume
 
-NEAR_PCT = 0.03
-VOLUME_SHRINK = 0.60
+NEAR_MA10_PCT = 0.02
+NEAR_MA20_PCT = 0.03
+VOLUME_SHRINK = 0.50
 
 
 class StrategyB(BaseStrategy):
@@ -34,8 +35,8 @@ class StrategyB(BaseStrategy):
         if not (ma5 > ma10 > ma20):
             return None
 
-        near_ma10 = abs(close - ma10) / ma10 <= NEAR_PCT
-        near_ma20 = abs(close - ma20) / ma20 <= NEAR_PCT
+        near_ma10 = abs(close - ma10) / ma10 <= NEAR_MA10_PCT
+        near_ma20 = abs(close - ma20) / ma20 <= NEAR_MA20_PCT
         if not (near_ma10 or near_ma20):
             return None
 
@@ -55,7 +56,7 @@ class StrategyB(BaseStrategy):
             t=today["t"],
             strategy=self.name,
             entry_price=close,
-            stop_loss=ma20,
+            stop_loss=max(ma20, close * 0.96),
             score=None,
             detail={
                 "ma5": ma5,

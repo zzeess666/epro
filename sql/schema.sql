@@ -46,3 +46,17 @@ CREATE TABLE IF NOT EXISTS backtest_result (
   avg_loss DECIMAL(10,2),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS recommend_result (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  t DATE NOT NULL COMMENT '推荐日期',
+  dm VARCHAR(10) NOT NULL,
+  strategy VARCHAR(10) COMMENT '命中策略',
+  score DECIMAL(10,2) COMMENT '综合评分',
+  reason TEXT COMMENT '推荐理由',
+  entry_price DECIMAL(10,2),
+  stop_loss DECIMAL(10,2),
+  position_pct DECIMAL(5,2) COMMENT '建议仓位',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_t (t)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

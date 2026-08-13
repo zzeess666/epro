@@ -46,18 +46,20 @@ class StrategyA(BaseStrategy):
             if not _pullback_ok(klines, j, index, brow_high, brow_close, volume):
                 continue
 
+            stop_loss = max(brow_low, close * 0.96)
             return Signal(
                 dm=dm,
                 t=today["t"],
                 strategy=self.name,
                 entry_price=close,
-                stop_loss=brow_low,
+                stop_loss=stop_loss,
                 score=None,
                 detail={
                     "brow_date": str(brow["t"]),
                     "brow_high": brow_high,
                     "brow_close": brow_close,
                     "brow_low": brow_low,
+                    "stop_cap": close * 0.96,
                     "today_strength": today_strength,
                     "brow_strength": brow_strength,
                     "pullback_days": index - j - 1,

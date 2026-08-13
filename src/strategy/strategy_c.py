@@ -10,7 +10,7 @@ from src.strategy.base_strategy import BaseStrategy, Signal, avg_volume
 # TODO(M3+): 利润维度 25% — ROE/EPS，需财务接口，M2 不调用
 TECH_WEIGHT = 0.50
 FUND_WEIGHT = 0.50
-HIT_SCORE = 60.0
+HIT_SCORE = 75.0  # M3：60→75，减少弱信号
 UPPER_SHADOW_MAX = 0.50
 
 
@@ -137,7 +137,7 @@ def _no_long_upper_shadow(open_p: float, high: float, low: float, close: float) 
 
 def _stop_loss(close: float, ma20: Optional[float]) -> Optional[float]:
     if ma20 is not None and 0 < ma20 < close:
-        return ma20
+        return max(ma20, close * 0.96)
     if close > 0:
         return close * 0.96
     return None
