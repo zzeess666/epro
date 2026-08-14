@@ -9,8 +9,10 @@ from config.config import SYNC_STOCK_LIMIT
 from src.api.mairui_client import MairuiClient
 from src.db.connection import get_connection
 
-KLINE_LIMIT = 120
-CALENDAR_BUFFER_DAYS = 200
+KLINE_LIMIT_INIT = 3000   # 初始化：一次拉全历史（覆盖上市以来全部K线）
+KLINE_LIMIT_DAILY = 30    # 日常：增量最近30交易日
+INIT_START = "20150101"   # 初始化起始日期（足够早）
+DAILY_BUFFER_DAYS = 45    # 日常往前缓冲自然日（约30交易日）
 
 
 def _to_date_str(value: Any) -> Optional[str]:
@@ -101,7 +103,7 @@ def _upsert_klines(dm: str, rows: list[dict[str, Any]]) -> int:
         conn.close()
 
 
-def run(limit: int | None = None) -> int:
+def run(limit: int | None = None, init: bool = False) -> int:
     cap = SYNC_STOCK_LIMIT if limit is None else min(int(limit), SYNC_STOCK_LIMIT)
     stocks = _load_stocks(cap)
     if not stocks:
@@ -109,14 +111,19 @@ def run(limit: int | None = None) -> int:
         return 0
 
     end = date.today()
-    start = end - timedelta(days=CALENDAR_BUFFER_DAYS)
+    kline_limit = KLINE_LIMIT_INIT if init else KLINE_LIMIT_DAILY
+    if init:
+        start = date(2015, 1, 1)
+    else:
+        start = end - timedelta(days=DAILY_BUFFER_DAYS)
     client = MairuiClient()
     total_rows = 0
     failed = 0
 
     print(
         f"[daily_kline] 开始同步 {len(stocks)} 只，"
-        f"区间 {start.isoformat()} ~ {end.isoformat()}，lt={KLINE_LIMIT}"
+        f"模式={'初始化全历史' if init else '日常增量'} "
+        f"区间 {start.isoformat()} ~ {end.isoformat()}，lt={kline_limit}"
     )
 
     for index, stock in enumerate(stocks, start=1):
@@ -128,7 +135,7 @@ def run(limit: int | None = None) -> int:
                 jys=jys,
                 start=start.strftime("%Y%m%d"),
                 end=end.strftime("%Y%m%d"),
-                limit=KLINE_LIMIT,
+                limit=kline_limit,
             )
             written = _upsert_klines(dm, rows)
             total_rows += written

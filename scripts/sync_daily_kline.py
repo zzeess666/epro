@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI：同步日K（≤100 只，近 120 个交易日）。"""
+"""CLI：同步日K。默认日常增量（最近30交易日）；--init 初始化全历史。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from src.sync.daily_kline_sync import run
 
 
 def main() -> int:
-    run()
+    init = "--init" in sys.argv
+    run(init=init)
     return 0
 
 
