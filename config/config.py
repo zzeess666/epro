@@ -11,8 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-# 测试阶段硬上限：严禁全量同步
-_MAX_SYNC_STOCK_LIMIT = 100
+# 硬上限：放开到全市场（约5200只）；测试可用 SYNC_STOCK_LIMIT 环境变量限制
+_MAX_SYNC_STOCK_LIMIT = 6000
 
 
 def _int_env(name: str, default: str) -> int:

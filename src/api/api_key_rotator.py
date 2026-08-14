@@ -16,7 +16,7 @@ class ApiKeyExhaustedError(RuntimeError):
 
 
 class ApiKeyRotator:
-    DAILY_LIMIT = 500
+    DAILY_LIMIT = 5000
 
     def __init__(
         self,
