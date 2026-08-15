@@ -159,22 +159,15 @@ def api_history() -> JSONResponse:
                 raw_rows = cursor.fetchall()
                 for row in raw_rows:
                     buy_date = to_date(row.get("buy_date"))
-                    dm = str(row.get("dm") or "").strip()
-                    klines = (
-                        _load_klines_window(cursor, dm, buy_date)
-                        if dm and buy_date is not None
-                        else []
-                    )
                     records.append(
                         {
-                            "dm": dm,
+                            "dm": str(row.get("dm") or "").strip(),
                             "mc": str(row.get("mc") or ""),
                             "buy_date": buy_date.isoformat() if buy_date else None,
                             "entry": _num(row.get("entry")),
                             "stop": _num(row.get("stop")),
                             "exit_price": _num(row.get("exit_price")),
                             "ret": _num(row.get("ret")),
-                            "klines": klines,
                         }
                     )
         finally:
@@ -189,6 +182,21 @@ def api_history() -> JSONResponse:
             "records": records,
         }
     )
+
+
+@app.get("/api/kline")
+def api_kline(dm: str, date: str) -> JSONResponse:
+    """按需返回单只股票某买入日前后各30天的K线。"""
+    buy_date = to_date(date)
+    if not dm or buy_date is None:
+        return JSONResponse({"dm": dm, "klines": []})
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            klines = _load_klines_window(cursor, dm, buy_date)
+    finally:
+        conn.close()
+    return JSONResponse({"dm": dm, "klines": klines})
 
 
 @app.get("/")

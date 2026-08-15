@@ -194,97 +194,107 @@
         " 买入日 " + (rec.buy_date || "-") +
         " 买入 " + fmt(rec.entry) +
         " 止损 " + fmt(rec.stop);
-      var klines = rec.klines || [];
-      if (!klines.length) {
-        box.style.display = "none";
-        title.textContent += "（无K线数据）";
-        return;
-      }
       if (typeof echarts === "undefined") {
         box.style.display = "none";
         title.textContent += "（ECharts 未加载）";
         return;
       }
-      box.style.display = "block";
-      void box.offsetWidth;
-      if (!historyChart) {
-        historyChart = echarts.init(box);
-        window.addEventListener("resize", function () {
-          if (historyChart) historyChart.resize();
-        });
-      } else {
-        historyChart.resize();
-      }
-      var dates = klines.map(function (k) { return k.t || ""; });
-      var candle = klines.map(function (k) {
-        return [k.o, k.c, k.l, k.h];
-      });
-      var ma5 = klines.map(function (k) { return k.ma5; });
-      var ma10 = klines.map(function (k) { return k.ma10; });
-      var ma20 = klines.map(function (k) { return k.ma20; });
-      var buyDate = rec.buy_date || "";
-      var markPointData = [];
-      if (buyDate && dates.indexOf(buyDate) >= 0 && rec.entry != null) {
-        markPointData.push({
-          name: "买入",
-          coord: [buyDate, rec.entry],
-          value: rec.entry,
-          itemStyle: { color: "#1677ff" },
-          label: { formatter: "买入 " + fmt(rec.entry) }
-        });
-      }
-      var markLineData = [];
-      if (rec.stop != null) {
-        markLineData.push({
-          name: "止损",
-          yAxis: rec.stop,
-          lineStyle: { color: "#c33", type: "dashed", width: 1.5 },
-          label: { formatter: "止损 " + fmt(rec.stop), position: "insideEndTop" }
-        });
-      }
-      historyChart.setOption({
-        animation: false,
-        legend: { data: ["K线", "MA5", "MA10", "MA20"], top: 4 },
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "cross" }
-        },
-        grid: { left: 48, right: 24, top: 36, bottom: 48 },
-        xAxis: {
-          type: "category",
-          data: dates,
-          axisLabel: { formatter: fmtAxisDate },
-          boundaryGap: true
-        },
-        yAxis: { scale: true, splitLine: { lineStyle: { type: "dotted" } } },
-        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
-        series: [
-          {
-            name: "K线",
-            type: "candlestick",
-            data: candle,
-            itemStyle: {
-              color: "#ef232a",
-              color0: "#14b143",
-              borderColor: "#ef232a",
-              borderColor0: "#14b143"
+      title.textContent += "　K线加载中…";
+      fetch("/api/kline?dm=" + encodeURIComponent(rec.dm || "") + "&date=" + encodeURIComponent(rec.buy_date || ""))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var klines = (data && data.klines) || [];
+          if (!klines.length) {
+            box.style.display = "none";
+            title.textContent = title.textContent.replace("　K线加载中…", "（无K线数据）");
+            return;
+          }
+          title.textContent = title.textContent.replace("　K线加载中…", "");
+          box.style.display = "block";
+          void box.offsetWidth;
+          if (!historyChart) {
+            historyChart = echarts.init(box);
+            window.addEventListener("resize", function () {
+              if (historyChart) historyChart.resize();
+            });
+          } else {
+            historyChart.resize();
+          }
+          var dates = klines.map(function (k) { return k.t || ""; });
+          var candle = klines.map(function (k) {
+            return [k.o, k.c, k.l, k.h];
+          });
+          var ma5 = klines.map(function (k) { return k.ma5; });
+          var ma10 = klines.map(function (k) { return k.ma10; });
+          var ma20 = klines.map(function (k) { return k.ma20; });
+          var buyDate = rec.buy_date || "";
+          var markPointData = [];
+          if (buyDate && dates.indexOf(buyDate) >= 0 && rec.entry != null) {
+            markPointData.push({
+              name: "买入",
+              coord: [buyDate, rec.entry],
+              value: rec.entry,
+              itemStyle: { color: "#1677ff" },
+              label: { formatter: "买入 " + fmt(rec.entry) }
+            });
+          }
+          var markLineData = [];
+          if (rec.stop != null) {
+            markLineData.push({
+              name: "止损",
+              yAxis: rec.stop,
+              lineStyle: { color: "#c33", type: "dashed", width: 1.5 },
+              label: { formatter: "止损 " + fmt(rec.stop), position: "insideEndTop" }
+            });
+          }
+          historyChart.setOption({
+            animation: false,
+            legend: { data: ["K线", "MA5", "MA10", "MA20"], top: 4 },
+            tooltip: {
+              trigger: "axis",
+              axisPointer: { type: "cross" }
             },
-            markPoint: {
-              symbol: "pin",
-              symbolSize: 48,
-              data: markPointData
+            grid: { left: 48, right: 24, top: 36, bottom: 48 },
+            xAxis: {
+              type: "category",
+              data: dates,
+              axisLabel: { formatter: fmtAxisDate },
+              boundaryGap: true
             },
-            markLine: {
-              silent: true,
-              symbol: "none",
-              data: markLineData
-            }
-          },
-          { name: "MA5", type: "line", data: ma5, showSymbol: false, lineStyle: { width: 1.2 }, color: "#fa8c16" },
-          { name: "MA10", type: "line", data: ma10, showSymbol: false, lineStyle: { width: 1.2 }, color: "#1677ff" },
-          { name: "MA20", type: "line", data: ma20, showSymbol: false, lineStyle: { width: 1.2 }, color: "#722ed1" }
-        ]
-      }, true);
+            yAxis: { scale: true, splitLine: { lineStyle: { type: "dotted" } } },
+            dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+            series: [
+              {
+                name: "K线",
+                type: "candlestick",
+                data: candle,
+                itemStyle: {
+                  color: "#ef232a",
+                  color0: "#14b143",
+                  borderColor: "#ef232a",
+                  borderColor0: "#14b143"
+                },
+                markPoint: {
+                  symbol: "pin",
+                  symbolSize: 48,
+                  data: markPointData
+                },
+                markLine: {
+                  silent: true,
+                  symbol: "none",
+                  data: markLineData
+                }
+              },
+              { name: "MA5", type: "line", data: ma5, showSymbol: false, lineStyle: { width: 1.2 }, color: "#fa8c16" },
+              { name: "MA10", type: "line", data: ma10, showSymbol: false, lineStyle: { width: 1.2 }, color: "#1677ff" },
+              { name: "MA20", type: "line", data: ma20, showSymbol: false, lineStyle: { width: 1.2 }, color: "#722ed1" }
+            ]
+          }, true);
+        })
+        .catch(function () {
+          box.style.display = "none";
+          title.textContent = title.textContent.replace("　K线加载中…", "（K线加载失败）");
+        });
     }
 
     fetch("/api/history")
