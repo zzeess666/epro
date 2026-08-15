@@ -196,6 +196,11 @@ def index() -> FileResponse:
     return FileResponse(INDEX_HTML, media_type="text/html; charset=utf-8")
 
 
+@app.get("/echarts.min.js")
+def echarts_js() -> FileResponse:
+    return FileResponse(PUBLIC_DIR / "echarts.min.js", media_type="application/javascript")
+
+
 def _date_str(value: date | None) -> str | None:
     return value.isoformat() if value else None
 
