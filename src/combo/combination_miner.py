@@ -50,6 +50,34 @@ PERIODS: tuple[PeriodSpec, ...] = (
 )
 
 
+def _avg_win(win_pnl: float, wins: int) -> float:
+    if wins <= 0:
+        return 0.0
+    return win_pnl / wins
+
+
+def _avg_loss(loss_pnl: float, n: int, wins: int) -> float:
+    losses = n - wins
+    if losses <= 0:
+        return 0.0
+    return loss_pnl / losses
+
+
+def _profit_ratio(avg_win: float, avg_loss: float) -> float:
+    denom = abs(avg_loss)
+    if denom == 0:
+        return float("inf") if avg_win > 0 else 0.0
+    return avg_win / denom
+
+
+def _expectation(wins: int, n: int, avg_win: float, avg_loss: float) -> float:
+    """期望收益 = 胜率×均盈 − (1−胜率)×|均亏|。胜率为 0~1。"""
+    if n <= 0:
+        return 0.0
+    wr = wins / n
+    return wr * avg_win - (1.0 - wr) * abs(avg_loss)
+
+
 @dataclass
 class ComboPeriodStats:
     combo: str
@@ -60,6 +88,10 @@ class ComboPeriodStats:
     train_n: int = 0
     test_wins: int = 0
     test_n: int = 0
+    train_win_pnl: float = 0.0
+    train_loss_pnl: float = 0.0
+    test_win_pnl: float = 0.0
+    test_loss_pnl: float = 0.0
 
     @property
     def train_win_rate(self) -> float:
@@ -73,14 +105,66 @@ class ComboPeriodStats:
             return 0.0
         return 100.0 * self.test_wins / self.test_n
 
+    @property
+    def train_avg_win(self) -> float:
+        return _avg_win(self.train_win_pnl, self.train_wins)
+
+    @property
+    def train_avg_loss(self) -> float:
+        return _avg_loss(self.train_loss_pnl, self.train_n, self.train_wins)
+
+    @property
+    def test_avg_win(self) -> float:
+        return _avg_win(self.test_win_pnl, self.test_wins)
+
+    @property
+    def test_avg_loss(self) -> float:
+        return _avg_loss(self.test_loss_pnl, self.test_n, self.test_wins)
+
+    @property
+    def train_ratio(self) -> float:
+        return _profit_ratio(self.train_avg_win, self.train_avg_loss)
+
+    @property
+    def test_ratio(self) -> float:
+        return _profit_ratio(self.test_avg_win, self.test_avg_loss)
+
+    @property
+    def train_profit_ratio(self) -> float:
+        return self.train_ratio
+
+    @property
+    def test_profit_ratio(self) -> float:
+        return self.test_ratio
+
+    @property
+    def train_expectation(self) -> float:
+        return _expectation(
+            self.train_wins, self.train_n, self.train_avg_win, self.train_avg_loss
+        )
+
+    @property
+    def test_expectation(self) -> float:
+        return _expectation(
+            self.test_wins, self.test_n, self.test_avg_win, self.test_avg_loss
+        )
+
     def add(self, ret: float, is_train: bool) -> None:
-        win = 1 if ret > 0 else 0
+        win = ret > 0
         if is_train:
             self.train_n += 1
-            self.train_wins += win
+            if win:
+                self.train_wins += 1
+                self.train_win_pnl += ret
+            else:
+                self.train_loss_pnl += ret
         else:
             self.test_n += 1
-            self.test_wins += win
+            if win:
+                self.test_wins += 1
+                self.test_win_pnl += ret
+            else:
+                self.test_loss_pnl += ret
 
 
 def index_code_for_dm(dm: str) -> str:

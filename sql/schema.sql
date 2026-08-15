@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS combo_rank (
   test_win_rate DECIMAL(5,2),
   train_sample INT,
   test_sample INT,
+  train_avg_win DECIMAL(10,2),
+  train_avg_loss DECIMAL(10,2),
+  test_avg_win DECIMAL(10,2),
+  test_avg_loss DECIMAL(10,2),
+  train_ratio DECIMAL(10,2),
+  test_ratio DECIMAL(10,2),
+  train_expectation DECIMAL(10,4),
+  test_expectation DECIMAL(10,4),
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
