@@ -110,3 +110,18 @@ CREATE TABLE IF NOT EXISTS index_kline (
   ma20 DECIMAL(10,2),
   PRIMARY KEY (code, t)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS history_replay (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  combo VARCHAR(200) COMMENT '组合名',
+  period VARCHAR(10) COMMENT '周期标签',
+  dm VARCHAR(10) COMMENT '股票代码',
+  mc VARCHAR(50) COMMENT '股票名称',
+  buy_date DATE COMMENT '买入日',
+  entry DECIMAL(10,2) COMMENT '买入价',
+  stop DECIMAL(10,2) COMMENT '止损价',
+  exit_price DECIMAL(10,2) COMMENT '出场价',
+  ret DECIMAL(10,2) COMMENT '收益率%',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_combo (combo, period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

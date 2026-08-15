@@ -17,6 +17,12 @@
     .watch { color: #c80; }
     .empty { color: #888; }
     .alert { background: #fff7e6; border: 1px solid #f0c36d; padding: 8px 12px; margin: 8px 0 16px; max-width: 900px; }
+    .history-row { cursor: pointer; }
+    .history-row:hover { background: #f5f5f5; }
+    .history-row.selected { background: #e6f4ff; }
+    .up { color: #c33; font-weight: 600; }
+    .down { color: #0a7; font-weight: 600; }
+    #kline-chart { width: 100%; max-width: 900px; height: 420px; background: #fff; margin-top: 12px; border: 1px solid #ddd; display: none; }
   </style>
 </head>
 <body>
@@ -54,6 +60,28 @@
       <tr><td colspan="5" class="empty">加载中…</td></tr>
     </tbody>
   </table>
+
+  <h2>历史回放</h2>
+  <div class="meta" id="history-meta">加载中…</div>
+  <table>
+    <thead>
+      <tr>
+        <th>买入日</th>
+        <th>代码</th>
+        <th>名称</th>
+        <th>买入价</th>
+        <th>止损价</th>
+        <th>收益</th>
+      </tr>
+    </thead>
+    <tbody id="history-body">
+      <tr><td colspan="6" class="empty">加载中…</td></tr>
+    </tbody>
+  </table>
+  <div class="meta" id="chart-title"></div>
+  <div id="kline-chart"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 
   <script>
     function fmt(v) {
@@ -138,6 +166,169 @@
         document.getElementById("track-date").textContent = "跟踪接口请求失败";
         document.getElementById("track-body").innerHTML =
           '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+      });
+
+    var historyRecords = [];
+    var historyChart = null;
+
+    function retClass(v) {
+      if (typeof v !== "number") return "";
+      return v > 0 ? "up" : "down";
+    }
+    function fmtRet(v) {
+      if (v === null || v === undefined || v === "") return "-";
+      var n = Number(v);
+      if (isNaN(n)) return String(v);
+      return (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+    }
+    function fmtAxisDate(s) {
+      if (!s) return "";
+      return String(s).slice(5);
+    }
+    function renderKline(rec) {
+      var box = document.getElementById("kline-chart");
+      var title = document.getElementById("chart-title");
+      if (!rec) return;
+      title.textContent =
+        (rec.dm || "") + " " + (rec.mc || "") +
+        " 买入日 " + (rec.buy_date || "-") +
+        " 买入 " + fmt(rec.entry) +
+        " 止损 " + fmt(rec.stop);
+      var klines = rec.klines || [];
+      if (!klines.length) {
+        box.style.display = "none";
+        title.textContent += "（无K线数据）";
+        return;
+      }
+      if (typeof echarts === "undefined") {
+        box.style.display = "none";
+        title.textContent += "（ECharts 未加载）";
+        return;
+      }
+      box.style.display = "block";
+      void box.offsetWidth;
+      if (!historyChart) {
+        historyChart = echarts.init(box);
+        window.addEventListener("resize", function () {
+          if (historyChart) historyChart.resize();
+        });
+      } else {
+        historyChart.resize();
+      }
+      var dates = klines.map(function (k) { return k.t || ""; });
+      var candle = klines.map(function (k) {
+        return [k.o, k.c, k.l, k.h];
+      });
+      var ma5 = klines.map(function (k) { return k.ma5; });
+      var ma10 = klines.map(function (k) { return k.ma10; });
+      var ma20 = klines.map(function (k) { return k.ma20; });
+      var buyDate = rec.buy_date || "";
+      var markPointData = [];
+      if (buyDate && dates.indexOf(buyDate) >= 0 && rec.entry != null) {
+        markPointData.push({
+          name: "买入",
+          coord: [buyDate, rec.entry],
+          value: rec.entry,
+          itemStyle: { color: "#1677ff" },
+          label: { formatter: "买入 " + fmt(rec.entry) }
+        });
+      }
+      var markLineData = [];
+      if (rec.stop != null) {
+        markLineData.push({
+          name: "止损",
+          yAxis: rec.stop,
+          lineStyle: { color: "#c33", type: "dashed", width: 1.5 },
+          label: { formatter: "止损 " + fmt(rec.stop), position: "insideEndTop" }
+        });
+      }
+      historyChart.setOption({
+        animation: false,
+        legend: { data: ["K线", "MA5", "MA10", "MA20"], top: 4 },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "cross" }
+        },
+        grid: { left: 48, right: 24, top: 36, bottom: 48 },
+        xAxis: {
+          type: "category",
+          data: dates,
+          axisLabel: { formatter: fmtAxisDate },
+          boundaryGap: true
+        },
+        yAxis: { scale: true, splitLine: { lineStyle: { type: "dotted" } } },
+        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        series: [
+          {
+            name: "K线",
+            type: "candlestick",
+            data: candle,
+            itemStyle: {
+              color: "#ef232a",
+              color0: "#14b143",
+              borderColor: "#ef232a",
+              borderColor0: "#14b143"
+            },
+            markPoint: {
+              symbol: "pin",
+              symbolSize: 48,
+              data: markPointData
+            },
+            markLine: {
+              silent: true,
+              symbol: "none",
+              data: markLineData
+            }
+          },
+          { name: "MA5", type: "line", data: ma5, showSymbol: false, lineStyle: { width: 1.2 }, color: "#fa8c16" },
+          { name: "MA10", type: "line", data: ma10, showSymbol: false, lineStyle: { width: 1.2 }, color: "#1677ff" },
+          { name: "MA20", type: "line", data: ma20, showSymbol: false, lineStyle: { width: 1.2 }, color: "#722ed1" }
+        ]
+      }, true);
+    }
+
+    fetch("/api/history")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var combo = data.combo || "-";
+        var period = data.period || "-";
+        var wr = data.win_rate;
+        var exp = data.expectation;
+        document.getElementById("history-meta").textContent =
+          "最优组合 " + combo +
+          "　周期 " + period +
+          "　胜率 " + (wr == null ? "-" : Number(wr).toFixed(2) + "%") +
+          "　期望收益 " + (exp == null ? "-" : Number(exp).toFixed(2));
+        historyRecords = data.records || [];
+        if (!historyRecords.length) {
+          document.getElementById("history-body").innerHTML =
+            '<tr><td colspan="6" class="empty">暂无历史回放，请先运行 replay_save.py</td></tr>';
+          return;
+        }
+        document.getElementById("history-body").innerHTML = historyRecords.map(function (it, i) {
+          return '<tr class="history-row" data-idx="' + i + '">' +
+            "<td>" + (it.buy_date || "-") + "</td>" +
+            "<td>" + (it.dm || "-") + "</td>" +
+            "<td>" + (it.mc || "-") + "</td>" +
+            "<td>" + fmt(it.entry) + "</td>" +
+            "<td>" + fmt(it.stop) + "</td>" +
+            '<td class="' + retClass(it.ret) + '">' + fmtRet(it.ret) + "</td>" +
+            "</tr>";
+        }).join("");
+        var rows = document.querySelectorAll("#history-body .history-row");
+        Array.prototype.forEach.call(rows, function (tr) {
+          tr.addEventListener("click", function () {
+            Array.prototype.forEach.call(rows, function (el) { el.classList.remove("selected"); });
+            tr.classList.add("selected");
+            var idx = parseInt(tr.getAttribute("data-idx"), 10);
+            renderKline(historyRecords[idx]);
+          });
+        });
+      })
+      .catch(function () {
+        document.getElementById("history-meta").textContent = "历史回放接口请求失败";
+        document.getElementById("history-body").innerHTML =
+          '<tr><td colspan="6" class="empty">加载失败</td></tr>';
       });
   </script>
 </body>
