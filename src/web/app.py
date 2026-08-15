@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import os
 import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -12,8 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import FastAPI
+from dotenv import load_dotenv
+
+load_dotenv(ROOT / ".env")
+
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from src.db.connection import get_connection
 from src.screen.dynamic_screener import load_best_combo
@@ -43,6 +51,40 @@ CREATE TABLE IF NOT EXISTS history_replay (
 KLINE_WINDOW_DAYS = 30
 
 app = FastAPI(title="EPro", docs_url=None, redoc_url=None)
+
+
+class _BasicAuthMiddleware(BaseHTTPMiddleware):
+    """HTTP Basic 认证，保护整站。"""
+
+    def __init__(self, app, username: str, password: str) -> None:
+        super().__init__(app)
+        self._username = username
+        self._password = password
+
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("Authorization", "")
+        if not self._check(auth):
+            return Response(
+                "Unauthorized",
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="EPro"'},
+            )
+        return await call_next(request)
+
+    def _check(self, auth: str) -> bool:
+        if not auth.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(auth[6:]).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            return username == self._username and password == self._password
+        except Exception:
+            return False
+
+
+_WEB_USER = os.getenv("WEB_USER", "admin")
+_WEB_PASSWORD = os.getenv("WEB_PASSWORD", "epro2026")
+app.add_middleware(_BasicAuthMiddleware, username=_WEB_USER, password=_WEB_PASSWORD)
 
 
 def _ensure_history_replay() -> None:
