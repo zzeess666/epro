@@ -1,7 +1,7 @@
 """组合挖掘：枚举 2-3 指标组合，按 4 周期回测训练/测试胜率。
 
 信号日 = 组合内全部因子当日均为 1（只标记不买）；
-买入日 = 信号日后 5 个交易日内第一个回踩日（收盘买入）；收益模拟只用买入日之后的 K 线。
+买入日 = 信号日后先找回踩日，再等企稳确认当日收盘买入；收益模拟只用买入日之后的 K 线。
 大盘过滤：板块对应指数收盘 > MA20 才统计该信号。
 """
 
@@ -26,6 +26,8 @@ from src.strategy.base_strategy import to_date
 
 TRAIN_RATIO = 0.80
 PULLBACK_WINDOW = 10
+STABILIZE_WINDOW = 3
+ENTRY_STOP_PCT = 0.08  # 买入价 × 0.92
 
 # 板块 → 对应大盘指数
 INDEX_STAR = "000688.SH"       # 科创板 688
@@ -41,12 +43,12 @@ class PeriodSpec:
     stop_pct: float
 
 
-# 超短 3 天 2%；短 5 天 3-4%；中短 20 天 5-6%；中 60 天 8%
+# 超短 3 天；短 5 天；中短 20 天；中 60 天；统一止损 8%
 PERIODS: tuple[PeriodSpec, ...] = (
-    PeriodSpec("超短", 3, 0.02),
-    PeriodSpec("短", 5, 0.035),
-    PeriodSpec("中短", 20, 0.055),
-    PeriodSpec("中", 60, 0.08),
+    PeriodSpec("超短", 3, ENTRY_STOP_PCT),
+    PeriodSpec("短", 5, ENTRY_STOP_PCT),
+    PeriodSpec("中短", 20, ENTRY_STOP_PCT),
+    PeriodSpec("中", 60, ENTRY_STOP_PCT),
 )
 
 
@@ -327,11 +329,11 @@ def _load_flags(cursor, dm: str) -> dict[date, set[str]]:
 def _find_pullback_entry(
     klines: list[dict[str, Any]],
     signal_index: int,
-) -> Optional[tuple[int, float]]:
-    """信号日后最多 PULLBACK_WINDOW 个交易日内找第一个回踩日。
+) -> Optional[int]:
+    """信号日后最多 PULLBACK_WINDOW 个交易日内找第一个回踩日（只定位不买）。
 
-    回踩条件（全部满足）：最低价≤MA10、收盘价>MA20、成交量≤信号日成交量。
-    返回 (买入下标, 买入价=回踩日收盘)；无回踩则 None。
+    回踩条件（全部满足）：收盘价<信号日收盘、收盘价>MA20、成交量≤信号日成交量。
+    返回回踩日下标；无回踩则 None。仅用当日及之前数据。
     """
     if signal_index < 0 or signal_index >= len(klines):
         return None
@@ -346,19 +348,62 @@ def _find_pullback_entry(
     last = min(signal_index + PULLBACK_WINDOW, n - 1)
     for i in range(signal_index + 1, last + 1):
         bar = klines[i]
-        low = bar.get("l")
         close = bar.get("c")
-        ma10 = bar.get("ma10")
         ma20 = bar.get("ma20")
         vol = bar.get("v")
-        if low is None or close is None or ma10 is None or ma20 is None or vol is None:
+        if close is None or ma20 is None or vol is None:
             continue
         close_f = float(close)
         if close_f <= 0:
             continue
         if close_f < signal_close_f and close_f > float(ma20) and float(vol) <= signal_vol_f:
+            return i
+    return None
+
+
+def _find_stabilize_entry(
+    klines: list[dict[str, Any]],
+    pullback_index: int,
+) -> Optional[tuple[int, float]]:
+    """回踩日后最多 STABILIZE_WINDOW 个交易日内找第一个企稳日。
+
+    企稳条件（全部满足）：收盘>开盘（阳线）、最低价≥回踩日最低价（不再创新低）。
+    返回 (买入下标, 买入价=企稳日收盘)；3 天无企稳则 None。
+    仅用当日及回踩日已发生的低点，不用未来数据。
+    """
+    if pullback_index < 0 or pullback_index >= len(klines):
+        return None
+    pullback_low = klines[pullback_index].get("l")
+    if pullback_low is None:
+        return None
+    pullback_low_f = float(pullback_low)
+
+    n = len(klines)
+    last = min(pullback_index + STABILIZE_WINDOW, n - 1)
+    for i in range(pullback_index + 1, last + 1):
+        bar = klines[i]
+        open_p = bar.get("o")
+        close = bar.get("c")
+        low = bar.get("l")
+        if open_p is None or close is None or low is None:
+            continue
+        close_f = float(close)
+        if close_f <= 0:
+            continue
+        if close_f > float(open_p) and float(low) >= pullback_low_f:
             return i, close_f
     return None
+
+
+def _find_entry(
+    klines: list[dict[str, Any]],
+    signal_index: int,
+) -> Optional[tuple[int, float]]:
+    """两步定位买入日：回踩日 + 企稳日。无回踩或 3 天无企稳则放弃。"""
+    pullback_index = _find_pullback_entry(klines, signal_index)
+    if pullback_index is None:
+        return None
+    return _find_stabilize_entry(klines, pullback_index)
 
 
 def _simulate_periods(
@@ -366,7 +411,7 @@ def _simulate_periods(
     entry_index: int,
     entry_price: float,
 ) -> dict[str, Optional[float]]:
-    """从回踩买入日起持有，一次扫描算出 4 个周期收益率；未来 K 线不足则该周期为 None。"""
+    """从企稳买入日起持有，一次扫描算出 4 个周期收益率；未来 K 线不足则该周期为 None。"""
     results: dict[str, Optional[float]] = {}
     if entry_price <= 0:
         return {p.period: None for p in PERIODS}
@@ -457,10 +502,10 @@ def mine(limit: int | None = None) -> list[ComboPeriodStats]:
                     signal_index = date_to_index.get(day)
                     if signal_index is None:
                         continue
-                    pullback = _find_pullback_entry(klines, signal_index)
-                    if pullback is None:
+                    entry_index = _find_pullback_entry(klines, signal_index)
+                    if entry_index is None:
                         continue
-                    entry_index, entry_price = pullback
+                    entry_price = float(klines[entry_index]['c'])
                     period_rets = _simulate_periods(klines, entry_index, entry_price)
                     if all(v is None for v in period_rets.values()):
                         continue
