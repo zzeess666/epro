@@ -2,6 +2,7 @@
 
 信号日 = 组合内全部因子当日均为 1（只标记不买）；
 买入日 = 信号日后 5 个交易日内第一个回踩日（收盘买入）；收益模拟只用买入日之后的 K 线。
+大盘过滤：板块对应指数收盘 > MA20 才统计该信号。
 """
 
 from __future__ import annotations
@@ -25,6 +26,12 @@ from src.strategy.base_strategy import to_date
 
 TRAIN_RATIO = 0.80
 PULLBACK_WINDOW = 10
+
+# 板块 → 对应大盘指数
+INDEX_STAR = "000688.SH"       # 科创板 688
+INDEX_CHINEXT = "399006.SZ"    # 创业板 300/301
+INDEX_SH = "000001.SH"         # 沪市主板 600/601/603/605
+INDEX_SZ = "399001.SZ"         # 深市主板及其他
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,86 @@ class ComboPeriodStats:
         else:
             self.test_n += 1
             self.test_wins += win
+
+
+def index_code_for_dm(dm: str) -> str:
+    """按股票代码前缀映射板块对应指数。"""
+    code = "".join(ch for ch in str(dm).strip() if ch.isdigit())
+    prefix3 = code[:3]
+    if prefix3 == "688":
+        return INDEX_STAR
+    if prefix3 in ("300", "301"):
+        return INDEX_CHINEXT
+    if prefix3 in ("600", "601", "603", "605"):
+        return INDEX_SH
+    return INDEX_SZ
+
+
+def load_index_bull_map() -> dict[str, dict[date, bool]]:
+    """预加载 index_kline：code → {日: 收盘>MA20}。缺 ma20/收盘视为 False。"""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT code, t, c, ma20
+                FROM index_kline
+                ORDER BY code, t
+                """
+            )
+            rows = cursor.fetchall()
+    finally:
+        conn.close()
+    out: dict[str, dict[date, bool]] = defaultdict(dict)
+    for row in rows:
+        code = str(row.get("code") or "").strip().upper()
+        day = to_date(row.get("t"))
+        if not code or day is None:
+            continue
+        close = row.get("c")
+        ma20 = row.get("ma20")
+        if close is None or ma20 is None:
+            out[code][day] = False
+            continue
+        out[code][day] = float(close) > float(ma20)
+    return dict(out)
+
+
+def is_market_bull(
+    dm: str,
+    day: date,
+    bull_map: dict[str, dict[date, bool]] | None = None,
+) -> bool:
+    """板块对应指数当日收盘 > MA20 则为多头，允许统计；否则空仓。
+
+    无指数数据或 ma20 不足时返回 False（不用未来数据补全）。
+    """
+    index_code = index_code_for_dm(dm)
+    if bull_map is not None:
+        return bool(bull_map.get(index_code, {}).get(day, False))
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT c, ma20
+                FROM index_kline
+                WHERE code = %s AND t = %s
+                LIMIT 1
+                """,
+                (index_code, day),
+            )
+            row = cursor.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    close = row.get("c")
+    ma20 = row.get("ma20")
+    if close is None or ma20 is None:
+        return False
+    return float(close) > float(ma20)
 
 
 def enumerate_combos(factor_names: tuple[str, ...] | list[str] | None = None) -> list[tuple[str, ...]]:
@@ -246,11 +333,13 @@ def mine(limit: int | None = None) -> list[ComboPeriodStats]:
     dates = load_trade_dates()
     train_dates, test_dates = split_train_test(dates)
     codes = load_tradable_codes(limit)
+    bull_map = load_index_bull_map()
 
     print(
         f"[miner] 组合数={len(combos)} 周期={len(PERIODS)} "
         f"股票={len(codes)} 交易日={len(dates)} "
-        f"训练日={len(train_dates)} 测试日={len(test_dates)}"
+        f"训练日={len(train_dates)} 测试日={len(test_dates)} "
+        f"指数日={sum(len(v) for v in bull_map.values())}"
     )
     if not codes:
         print("[miner] 无可用股票（需沪深非 ST）")
@@ -258,6 +347,8 @@ def mine(limit: int | None = None) -> list[ComboPeriodStats]:
     if not train_dates or not test_dates:
         print("[miner] 交易日不足以做 80/20 切分")
         return list(stats.values())
+    if not bull_map:
+        print("[miner] index_kline 为空，请先运行 sync_index.py；大盘过滤将全部空仓")
 
     conn = get_connection()
     try:
@@ -276,6 +367,8 @@ def mine(limit: int | None = None) -> list[ComboPeriodStats]:
                     if len(hit_factors) < 2:
                         continue
                     if day not in train_dates and day not in test_dates:
+                        continue
+                    if not is_market_bull(dm, day, bull_map):
                         continue
                     signal_index = date_to_index.get(day)
                     if signal_index is None:

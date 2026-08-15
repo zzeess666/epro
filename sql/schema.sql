@@ -72,3 +72,33 @@ CREATE TABLE IF NOT EXISTS track_watch (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_date (track_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS factor_flag (
+  dm VARCHAR(10) NOT NULL,
+  t DATE NOT NULL,
+  factor VARCHAR(30) NOT NULL COMMENT '指标名',
+  flag TINYINT NOT NULL DEFAULT 0 COMMENT '0/1',
+  PRIMARY KEY (dm, t, factor),
+  KEY idx_t_factor (t, factor)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS combo_rank (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  combo VARCHAR(200) COMMENT '指标组合，如 macd_golden+gap_up',
+  period VARCHAR(10) COMMENT '周期标签 超短/短/中短/中',
+  hold_days INT,
+  train_win_rate DECIMAL(5,2),
+  test_win_rate DECIMAL(5,2),
+  train_sample INT,
+  test_sample INT,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS index_kline (
+  code VARCHAR(20) NOT NULL COMMENT '指数代码，如000001.SH',
+  t DATE NOT NULL,
+  o DECIMAL(10,2), h DECIMAL(10,2), l DECIMAL(10,2), c DECIMAL(10,2),
+  v BIGINT, a DECIMAL(20,2), pc DECIMAL(10,2),
+  ma20 DECIMAL(10,2),
+  PRIMARY KEY (code, t)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

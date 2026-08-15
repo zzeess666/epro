@@ -33,6 +33,15 @@ class MairuiClient:
         data = self._get(f"hslt/list/{licence}")
         return self._as_list(data)
 
+    def get_realtime_quote(self, dm: str) -> dict[str, Any]:
+        """实时行情 /hsrl/ssjy/{纯数字}/{licence}，返回单条行情。"""
+        licence = self.rotator.next()
+        code = "".join(ch for ch in str(dm).strip() if ch.isdigit())
+        if not code:
+            raise ValueError("股票代码为空")
+        data = self._get(f"hsrl/ssjy/{code}/{licence}")
+        return self._as_object(data)
+
     def get_daily_kline(
         self,
         code: str,
@@ -48,6 +57,25 @@ class MairuiClient:
             "st": _compact_date(start),
             "et": _compact_date(end),
             "lt": int(limit),
+        }
+        data = self._get(path, params=params)
+        return self._as_list(data)
+
+    def get_index_history(
+        self,
+        code: str,
+        start: str,
+        end: str,
+    ) -> list[dict[str, Any]]:
+        """指数日K /hsindex/history/{code}/d/{licence}?st=&et=（无 n）。"""
+        licence = self.rotator.next()
+        symbol = str(code).strip().upper()
+        if not symbol:
+            raise ValueError("指数代码为空")
+        path = f"hsindex/history/{symbol}/d/{licence}"
+        params = {
+            "st": _compact_date(start),
+            "et": _compact_date(end),
         }
         data = self._get(path, params=params)
         return self._as_list(data)
@@ -76,6 +104,17 @@ class MairuiClient:
     def _as_list(data: Any) -> list[dict[str, Any]]:
         if isinstance(data, list):
             return [row for row in data if isinstance(row, dict)]
+        raise MairuiApiError(f"接口返回格式异常: {type(data).__name__} {data!r}"[:300])
+
+    @staticmethod
+    def _as_object(data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            for row in data:
+                if isinstance(row, dict):
+                    return row
+            raise MairuiApiError(f"接口返回空列表: {data!r}"[:300])
         raise MairuiApiError(f"接口返回格式异常: {type(data).__name__} {data!r}"[:300])
 
     @staticmethod
