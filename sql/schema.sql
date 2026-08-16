@@ -125,3 +125,18 @@ CREATE TABLE IF NOT EXISTS history_replay (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_combo (combo, period)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS bt_satisfy (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  combo VARCHAR(200) NOT NULL COMMENT '组合，如 box_breakout+expma_golden+gap_up',
+  dm VARCHAR(10) NOT NULL,
+  mc VARCHAR(50),
+  buy_date DATE NOT NULL COMMENT '满足日',
+  start_price DECIMAL(10,2) COMMENT '满足日收盘',
+  day_level INT NOT NULL COMMENT '1/2/3/5/7/20/60',
+  end_date DATE COMMENT '目标日',
+  end_price DECIMAL(10,2) COMMENT '目标日收盘',
+  profit DECIMAL(10,2) COMMENT '收益%',
+  UNIQUE KEY uq (combo, dm, buy_date, day_level),
+  KEY idx_combo_level (combo, day_level, buy_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

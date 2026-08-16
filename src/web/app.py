@@ -1,4 +1,4 @@
-"""FastAPI：推荐列表 / 跟踪状态 / 历史回放 / 组合排行 / 手动回溯 / 首页。"""
+"""FastAPI：推荐列表 / 跟踪状态 / 历史回放 / 组合排行 / 手动回溯 / e8式回溯 / 首页。"""
 
 from __future__ import annotations
 
@@ -67,6 +67,26 @@ BACKTEST_RECORD_DEFAULT = 100
 BACKTEST_RECORD_MAX = 500
 _FACTOR_SET = set(FACTOR_NAMES)
 _PERIOD_MAP = {spec.period: spec for spec in PERIODS}
+_BT_DAY_LEVELS = frozenset({1, 2, 3, 5, 7, 20, 60})
+_BT_RANGE_DAYS = frozenset({3, 7, 15, 30, 60})
+_BT_STOCK_WINDOW_DAYS = 60
+
+_CREATE_BT_SATISFY = """
+CREATE TABLE IF NOT EXISTS bt_satisfy (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  combo VARCHAR(200) NOT NULL COMMENT '组合，如 box_breakout+expma_golden+gap_up',
+  dm VARCHAR(10) NOT NULL,
+  mc VARCHAR(50),
+  buy_date DATE NOT NULL COMMENT '满足日',
+  start_price DECIMAL(10,2) COMMENT '满足日收盘',
+  day_level INT NOT NULL COMMENT '1/2/3/5/7/20/60',
+  end_date DATE COMMENT '目标日',
+  end_price DECIMAL(10,2) COMMENT '目标日收盘',
+  profit DECIMAL(10,2) COMMENT '收益%',
+  UNIQUE KEY uq (combo, dm, buy_date, day_level),
+  KEY idx_combo_level (combo, day_level, buy_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
 
 app = FastAPI(title="EPro", docs_url=None, redoc_url=None)
 
@@ -103,6 +123,48 @@ class _BasicAuthMiddleware(BaseHTTPMiddleware):
 _WEB_USER = os.getenv("WEB_USER", "admin")
 _WEB_PASSWORD = os.getenv("WEB_PASSWORD", "epro2026")
 app.add_middleware(_BasicAuthMiddleware, username=_WEB_USER, password=_WEB_PASSWORD)
+
+
+def _ensure_bt_satisfy() -> None:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(_CREATE_BT_SATISFY)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _normalize_bt_day_level(day_level: int) -> int:
+    return day_level if day_level in _BT_DAY_LEVELS else 1
+
+
+def _normalize_bt_days(days: int) -> int:
+    return days if days in _BT_RANGE_DAYS else 60
+
+
+def _bt_cutoff(cursor, days: int) -> tuple[date | None, date | None]:
+    """基准日 = 最新交易日 MAX(buy_date)，窗口 = 基准日往前 days 自然日。"""
+    cursor.execute("SELECT MAX(buy_date) AS d FROM bt_satisfy")
+    row = cursor.fetchone() or {}
+    base = to_date(row.get("d"))
+    if base is None:
+        return None, None
+    return base, base - timedelta(days=int(days))
+
+
+def _median_profit(values: list[float]) -> float:
+    n = len(values)
+    if n <= 0:
+        return 0.0
+    ordered = sorted(values)
+    mid = n // 2
+    if n % 2 == 1:
+        return _round2(ordered[mid])
+    return _round2((ordered[mid - 1] + ordered[mid]) / 2.0)
 
 
 def _ensure_history_replay() -> None:
@@ -488,6 +550,139 @@ def api_backtest(
             "records": [_serialize_backtest_record(r) for r in shown],
         }
     )
+
+
+@app.get("/api/bt/summary")
+def api_bt_summary(day_level: int = 1, days: int = 60) -> JSONResponse:
+    """达标组合在该周期+样本范围内的汇总，按胜率降序。"""
+    _ensure_bt_satisfy()
+    day_level = _normalize_bt_day_level(day_level)
+    days = _normalize_bt_days(days)
+    items: list[dict[str, Any]] = []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            _, cutoff = _bt_cutoff(cursor, days)
+            if cutoff is None:
+                return JSONResponse({"day_level": day_level, "days": days, "list": []})
+            cursor.execute(
+                """
+                SELECT combo, profit
+                FROM bt_satisfy
+                WHERE day_level = %s AND buy_date >= %s AND profit IS NOT NULL
+                """,
+                (day_level, cutoff),
+            )
+            grouped: dict[str, list[float]] = defaultdict(list)
+            for row in cursor.fetchall():
+                combo = str(row.get("combo") or "").strip()
+                profit = to_float(row.get("profit"))
+                if not combo or profit is None:
+                    continue
+                grouped[combo].append(profit)
+    finally:
+        conn.close()
+
+    for combo, profits in grouped.items():
+        n = len(profits)
+        if n <= 0:
+            continue
+        wins = sum(1 for p in profits if p > 0)
+        items.append(
+            {
+                "combo": combo,
+                "sample_count": n,
+                "win_rate": _round2(100.0 * wins / n),
+                "max_profit": _round2(max(profits)),
+                "min_profit": _round2(min(profits)),
+                "median_profit": _median_profit(profits),
+            }
+        )
+    items.sort(key=lambda r: (-float(r["win_rate"]), -int(r["sample_count"]), r["combo"]))
+    return JSONResponse({"day_level": day_level, "days": days, "list": items})
+
+
+@app.get("/api/bt/group")
+def api_bt_group(combo: str = "", day_level: int = 1, days: int = 60) -> JSONResponse:
+    """某组合命中明细，按 buy_date 降序。"""
+    _ensure_bt_satisfy()
+    combo_name = str(combo or "").strip()
+    if not combo_name:
+        return JSONResponse({"error": "combo 不能为空"}, status_code=400)
+    day_level = _normalize_bt_day_level(day_level)
+    days = _normalize_bt_days(days)
+    records: list[dict[str, Any]] = []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            _, cutoff = _bt_cutoff(cursor, days)
+            if cutoff is None:
+                return JSONResponse({"combo": combo_name, "list": []})
+            cursor.execute(
+                """
+                SELECT dm, mc, buy_date, start_price, end_price, profit
+                FROM bt_satisfy
+                WHERE combo = %s AND day_level = %s AND buy_date >= %s AND profit IS NOT NULL
+                ORDER BY buy_date DESC, dm ASC
+                """,
+                (combo_name, day_level, cutoff),
+            )
+            for row in cursor.fetchall():
+                buy_date = to_date(row.get("buy_date"))
+                records.append(
+                    {
+                        "dm": str(row.get("dm") or "").strip(),
+                        "mc": str(row.get("mc") or ""),
+                        "buy_date": buy_date.isoformat() if buy_date else None,
+                        "start_price": _num(row.get("start_price")),
+                        "end_price": _num(row.get("end_price")),
+                        "profit": _num(row.get("profit")),
+                    }
+                )
+    finally:
+        conn.close()
+    return JSONResponse({"combo": combo_name, "list": records})
+
+
+@app.get("/api/bt/stock")
+def api_bt_stock(dm: str = "", combo: str = "", day_level: int = 1) -> JSONResponse:
+    """某股票在某组合+周期的命中记录（最近 60 自然日），按 buy_date 降序。"""
+    _ensure_bt_satisfy()
+    dm_code = str(dm or "").strip()
+    combo_name = str(combo or "").strip()
+    if not dm_code or not combo_name:
+        return JSONResponse({"error": "dm 与 combo 不能为空"}, status_code=400)
+    day_level = _normalize_bt_day_level(day_level)
+    records: list[dict[str, Any]] = []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            _, cutoff = _bt_cutoff(cursor, _BT_STOCK_WINDOW_DAYS)
+            if cutoff is None:
+                return JSONResponse({"dm": dm_code, "combo": combo_name, "list": []})
+            cursor.execute(
+                """
+                SELECT buy_date, start_price, end_price, profit
+                FROM bt_satisfy
+                WHERE dm = %s AND combo = %s AND day_level = %s
+                  AND buy_date >= %s AND profit IS NOT NULL
+                ORDER BY buy_date DESC
+                """,
+                (dm_code, combo_name, day_level, cutoff),
+            )
+            for row in cursor.fetchall():
+                buy_date = to_date(row.get("buy_date"))
+                records.append(
+                    {
+                        "buy_date": buy_date.isoformat() if buy_date else None,
+                        "start_price": _num(row.get("start_price")),
+                        "end_price": _num(row.get("end_price")),
+                        "profit": _num(row.get("profit")),
+                    }
+                )
+    finally:
+        conn.close()
+    return JSONResponse({"dm": dm_code, "combo": combo_name, "list": records})
 
 
 @app.get("/")

@@ -37,6 +37,14 @@
     .tab-btn:hover { background: #f0f7ff; }
     .tab-btn.active { background: #1677ff; color: #fff; border-color: #1677ff; }
     .tab-pane { display: none; }
+    .radio-row { margin: 8px 0 12px; font-size: 14px; }
+    .radio-title { display: inline-block; min-width: 72px; color: #555; }
+    .radio-row label { margin-right: 14px; }
+    .combo-row, .bt-hit-row { cursor: pointer; }
+    .combo-row:hover, .bt-hit-row:hover { background: #f5f5f5; }
+    .combo-row.selected, .bt-hit-row.selected { background: #e6f4ff; }
+    details.manual-bt { margin-top: 32px; max-width: 1100px; }
+    details.manual-bt > summary { cursor: pointer; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -108,56 +116,111 @@
   </div>
 
   <div id="tab-analyze" class="tab-pane" style="display:none">
-    <h2>组合胜率排行</h2>
-  <div class="meta" id="combo-meta">加载中…</div>
-  <table class="wide">
-    <thead>
-      <tr id="combo-head">
-        <th class="sortable" data-key="combo">组合</th>
-        <th class="sortable" data-key="period">周期</th>
-        <th class="sortable" data-key="test_win_rate">测试胜率</th>
-        <th class="sortable" data-key="test_expectation">期望收益</th>
-        <th class="sortable" data-key="test_ratio">盈亏比</th>
-        <th class="sortable" data-key="test_sample">样本</th>
-        <th class="sortable" data-key="train_win_rate">训练胜率</th>
-      </tr>
-    </thead>
-    <tbody id="combo-body">
-      <tr><td colspan="7" class="empty">加载中…</td></tr>
-    </tbody>
-  </table>
+    <h2>回溯分析</h2>
+    <div class="radio-row">
+      <span class="radio-title">收益周期</span>
+      <label><input type="radio" name="bt-level" value="1" checked> 1</label>
+      <label><input type="radio" name="bt-level" value="2"> 2</label>
+      <label><input type="radio" name="bt-level" value="3"> 3</label>
+      <label><input type="radio" name="bt-level" value="5"> 5</label>
+      <label><input type="radio" name="bt-level" value="7"> 7</label>
+      <label><input type="radio" name="bt-level" value="20"> 20</label>
+      <label><input type="radio" name="bt-level" value="60"> 60</label>
+    </div>
+    <div class="radio-row">
+      <span class="radio-title">样本范围</span>
+      <label><input type="radio" name="bt-days" value="3"> 3天</label>
+      <label><input type="radio" name="bt-days" value="7"> 7天</label>
+      <label><input type="radio" name="bt-days" value="15"> 15天</label>
+      <label><input type="radio" name="bt-days" value="30"> 30天</label>
+      <label><input type="radio" name="bt-days" value="60" checked> 60天</label>
+    </div>
 
-  <h2>手动回溯</h2>
-  <div class="meta">勾选 2～3 个因子，选择周期后点击回溯（全市场约需数分钟）</div>
-  <div class="factor-grid" id="factor-box"></div>
-  <div class="controls">
-    <label>周期
-      <select id="period-select">
-        <option value="超短">超短</option>
-        <option value="短" selected>短</option>
-        <option value="中短">中短</option>
-        <option value="中">中</option>
-      </select>
-    </label>
-    <button type="button" id="backtest-btn" disabled>回溯</button>
-    <span class="meta" id="backtest-hint">请勾选 2～3 个因子</span>
-  </div>
-  <div class="meta" id="backtest-meta"></div>
-  <table>
-    <thead>
-      <tr>
-        <th>买入日</th>
-        <th>代码</th>
-        <th>名称</th>
-        <th>买入价</th>
-        <th>止损价</th>
-        <th>收益</th>
-      </tr>
-    </thead>
-    <tbody id="backtest-body">
-      <tr><td colspan="6" class="empty">请勾选因子后回溯</td></tr>
-    </tbody>
-  </table>
+    <h2>组合汇总</h2>
+    <div class="meta" id="bt-summary-meta">加载中…</div>
+    <table class="wide">
+      <thead>
+        <tr>
+          <th>组合名</th>
+          <th>样本数</th>
+          <th>胜率</th>
+          <th>最大盈利</th>
+          <th>最小盈利</th>
+          <th>中位数盈利</th>
+        </tr>
+      </thead>
+      <tbody id="bt-summary-body">
+        <tr><td colspan="6" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
+
+    <h2>命中详情</h2>
+    <div class="meta" id="bt-group-meta">点击上方组合查看详情</div>
+    <table>
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>代码</th>
+          <th>名称</th>
+          <th>起始价</th>
+          <th>目标价</th>
+          <th>收益</th>
+        </tr>
+      </thead>
+      <tbody id="bt-group-body">
+        <tr><td colspan="6" class="empty">点击上方组合查看详情</td></tr>
+      </tbody>
+    </table>
+
+    <h2>单股详情</h2>
+    <div class="meta" id="bt-stock-meta">点击命中详情中的股票查看单股回溯</div>
+    <table>
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>起始价</th>
+          <th>目标价</th>
+          <th>收益</th>
+        </tr>
+      </thead>
+      <tbody id="bt-stock-body">
+        <tr><td colspan="4" class="empty">点击命中详情中的股票查看单股回溯</td></tr>
+      </tbody>
+    </table>
+
+    <details class="manual-bt">
+      <summary>手动回溯</summary>
+      <div class="meta">勾选 2～3 个因子，选择周期后点击回溯（全市场约需数分钟）</div>
+      <div class="factor-grid" id="factor-box"></div>
+      <div class="controls">
+        <label>周期
+          <select id="period-select">
+            <option value="超短">超短</option>
+            <option value="短" selected>短</option>
+            <option value="中短">中短</option>
+            <option value="中">中</option>
+          </select>
+        </label>
+        <button type="button" id="backtest-btn" disabled>回溯</button>
+        <span class="meta" id="backtest-hint">请勾选 2～3 个因子</span>
+      </div>
+      <div class="meta" id="backtest-meta"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>买入日</th>
+            <th>代码</th>
+            <th>名称</th>
+            <th>买入价</th>
+            <th>止损价</th>
+            <th>收益</th>
+          </tr>
+        </thead>
+        <tbody id="backtest-body">
+          <tr><td colspan="6" class="empty">请勾选因子后回溯</td></tr>
+        </tbody>
+      </table>
+    </details>
   </div>
 
   <script src="/echarts.min.js"></script>
@@ -486,22 +549,15 @@
       "second_breakout", "shrink_pullback", "volume_ratio_high", "new_high_20",
       "limit_up", "expma_golden", "box_breakout", "kline_reversal"
     ];
-    var comboAll = [];
-    var comboSortKey = "test_win_rate";
-    var comboSortDir = "desc";
     var backtestRecords = [];
+    var selectedBtCombo = "";
+    var selectedBtDm = "";
 
     function fmtPct(v) {
       if (v === null || v === undefined || v === "") return "-";
       var n = Number(v);
       if (isNaN(n)) return String(v);
       return n.toFixed(2) + "%";
-    }
-    function fmtNum(v) {
-      if (v === null || v === undefined || v === "") return "-";
-      var n = Number(v);
-      if (isNaN(n)) return String(v);
-      return n.toFixed(2);
     }
     function selectedFactors() {
       var out = [];
@@ -531,65 +587,6 @@
         hint.textContent = "已选 " + n + " 个因子";
       }
     }
-    function comboCompare(a, b, key, dir) {
-      var va = a[key];
-      var vb = b[key];
-      var cmp;
-      if (typeof va === "number" && typeof vb === "number") {
-        cmp = va - vb;
-      } else if (va == null && vb == null) {
-        cmp = 0;
-      } else if (va == null) {
-        cmp = -1;
-      } else if (vb == null) {
-        cmp = 1;
-      } else {
-        cmp = String(va).localeCompare(String(vb), "zh");
-      }
-      return dir === "desc" ? -cmp : cmp;
-    }
-    function updateComboHead() {
-      var ths = document.querySelectorAll("#combo-head th.sortable");
-      Array.prototype.forEach.call(ths, function (th) {
-        var key = th.getAttribute("data-key");
-        var base = th.getAttribute("data-label") || th.textContent.replace(/[▲▼]\s*$/, "").trim();
-        th.setAttribute("data-label", base);
-        th.classList.remove("sorted");
-        if (key === comboSortKey) {
-          th.classList.add("sorted");
-          th.textContent = base + (comboSortDir === "desc" ? " ▼" : " ▲");
-        } else {
-          th.textContent = base;
-        }
-      });
-    }
-    function renderComboTable() {
-      var sorted = comboAll.slice().sort(function (a, b) {
-        var c = comboCompare(a, b, comboSortKey, comboSortDir);
-        if (c !== 0) return c;
-        return comboCompare(a, b, "combo", "asc");
-      });
-      var top = sorted.slice(0, 20);
-      document.getElementById("combo-meta").textContent =
-        "共 " + comboAll.length + " 个组合，按当前排序展示 TOP " + top.length;
-      if (!top.length) {
-        document.getElementById("combo-body").innerHTML =
-          '<tr><td colspan="7" class="empty">暂无组合排行，请先运行 run_miner.py</td></tr>';
-        return;
-      }
-      document.getElementById("combo-body").innerHTML = top.map(function (it) {
-        return "<tr>" +
-          "<td>" + comboCn(it.combo) + "</td>" +
-          "<td>" + (it.period || "-") + "</td>" +
-          "<td>" + fmtPct(it.test_win_rate) + "</td>" +
-          "<td>" + fmtNum(it.test_expectation) + "</td>" +
-          "<td>" + fmtNum(it.test_ratio) + "</td>" +
-          "<td>" + (it.test_sample == null ? "-" : it.test_sample) + "</td>" +
-          "<td>" + fmtPct(it.train_win_rate) + "</td>" +
-          "</tr>";
-      }).join("");
-      updateComboHead();
-    }
     function renderBacktestRows(records) {
       backtestRecords = records || [];
       var tbody = document.getElementById("backtest-body");
@@ -610,38 +607,170 @@
       bindKlineRows(tbody, backtestRecords);
     }
 
+    function btParams() {
+      var level = "1";
+      var days = "60";
+      var levels = document.querySelectorAll('input[name="bt-level"]');
+      Array.prototype.forEach.call(levels, function (el) { if (el.checked) level = el.value; });
+      var dayRadios = document.querySelectorAll('input[name="bt-days"]');
+      Array.prototype.forEach.call(dayRadios, function (el) { if (el.checked) days = el.value; });
+      return { day_level: level, days: days };
+    }
+    function resetBtStock() {
+      selectedBtDm = "";
+      document.getElementById("bt-stock-meta").textContent = "点击命中详情中的股票查看单股回溯";
+      document.getElementById("bt-stock-body").innerHTML =
+        '<tr><td colspan="4" class="empty">点击命中详情中的股票查看单股回溯</td></tr>';
+    }
+    function resetBtDetail() {
+      selectedBtCombo = "";
+      document.getElementById("bt-group-meta").textContent = "点击上方组合查看详情";
+      document.getElementById("bt-group-body").innerHTML =
+        '<tr><td colspan="6" class="empty">点击上方组合查看详情</td></tr>';
+      resetBtStock();
+    }
+    function loadBtSummary() {
+      var p = btParams();
+      document.getElementById("bt-summary-meta").textContent = "加载中…";
+      document.getElementById("bt-summary-body").innerHTML =
+        '<tr><td colspan="6" class="empty">加载中…</td></tr>';
+      resetBtDetail();
+      fetch("/api/bt/summary?day_level=" + encodeURIComponent(p.day_level) +
+        "&days=" + encodeURIComponent(p.days))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var list = (data && data.list) || [];
+          document.getElementById("bt-summary-meta").textContent =
+            "周期 " + (data.day_level == null ? p.day_level : data.day_level) +
+            "　样本范围 " + (data.days == null ? p.days : data.days) + " 天　共 " +
+            list.length + " 个组合（按胜率降序）";
+          if (!list.length) {
+            document.getElementById("bt-summary-body").innerHTML =
+              '<tr><td colspan="6" class="empty">暂无回溯数据，请先运行 bt_build.py</td></tr>';
+            return;
+          }
+          document.getElementById("bt-summary-body").innerHTML = list.map(function (it) {
+            return '<tr class="combo-row" data-combo="' + String(it.combo || "") + '">' +
+              "<td>" + comboCn(it.combo) + "</td>" +
+              "<td>" + (it.sample_count == null ? "-" : it.sample_count) + "</td>" +
+              "<td>" + fmtPct(it.win_rate) + "</td>" +
+              "<td>" + fmtPct(it.max_profit) + "</td>" +
+              "<td>" + fmtPct(it.min_profit) + "</td>" +
+              "<td>" + fmtPct(it.median_profit) + "</td>" +
+              "</tr>";
+          }).join("");
+        })
+        .catch(function () {
+          document.getElementById("bt-summary-meta").textContent = "回溯汇总接口请求失败";
+          document.getElementById("bt-summary-body").innerHTML =
+            '<tr><td colspan="6" class="empty">加载失败</td></tr>';
+        });
+    }
+    function loadBtGroup(combo) {
+      var p = btParams();
+      selectedBtCombo = combo || "";
+      resetBtStock();
+      document.getElementById("bt-group-meta").textContent = "加载中…";
+      document.getElementById("bt-group-body").innerHTML =
+        '<tr><td colspan="6" class="empty">加载中…</td></tr>';
+      fetch("/api/bt/group?combo=" + encodeURIComponent(selectedBtCombo) +
+        "&day_level=" + encodeURIComponent(p.day_level) +
+        "&days=" + encodeURIComponent(p.days))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var list = (data && data.list) || [];
+          document.getElementById("bt-group-meta").textContent =
+            "组合 " + comboCn(data.combo || selectedBtCombo) + "　共 " + list.length + " 条";
+          if (!list.length) {
+            document.getElementById("bt-group-body").innerHTML =
+              '<tr><td colspan="6" class="empty">该组合当前范围内无命中</td></tr>';
+            return;
+          }
+          document.getElementById("bt-group-body").innerHTML = list.map(function (it) {
+            return '<tr class="bt-hit-row" data-dm="' + String(it.dm || "") + '">' +
+              "<td>" + (it.buy_date || "-") + "</td>" +
+              "<td>" + (it.dm || "-") + "</td>" +
+              "<td>" + (it.mc || "-") + "</td>" +
+              "<td>" + fmt(it.start_price) + "</td>" +
+              "<td>" + fmt(it.end_price) + "</td>" +
+              '<td class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</td>" +
+              "</tr>";
+          }).join("");
+        })
+        .catch(function () {
+          document.getElementById("bt-group-meta").textContent = "命中详情接口请求失败";
+          document.getElementById("bt-group-body").innerHTML =
+            '<tr><td colspan="6" class="empty">加载失败</td></tr>';
+        });
+    }
+    function loadBtStock(dm, combo) {
+      var p = btParams();
+      selectedBtDm = dm || "";
+      selectedBtCombo = combo || selectedBtCombo;
+      document.getElementById("bt-stock-meta").textContent = "加载中…";
+      document.getElementById("bt-stock-body").innerHTML =
+        '<tr><td colspan="4" class="empty">加载中…</td></tr>';
+      fetch("/api/bt/stock?dm=" + encodeURIComponent(selectedBtDm) +
+        "&combo=" + encodeURIComponent(selectedBtCombo) +
+        "&day_level=" + encodeURIComponent(p.day_level))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var list = (data && data.list) || [];
+          document.getElementById("bt-stock-meta").textContent =
+            "代码 " + (data.dm || selectedBtDm) +
+            "　组合 " + comboCn(data.combo || selectedBtCombo) +
+            "　最近 60 自然日　共 " + list.length + " 条";
+          if (!list.length) {
+            document.getElementById("bt-stock-body").innerHTML =
+              '<tr><td colspan="4" class="empty">该股票最近 60 自然日无命中</td></tr>';
+            return;
+          }
+          document.getElementById("bt-stock-body").innerHTML = list.map(function (it) {
+            return "<tr>" +
+              "<td>" + (it.buy_date || "-") + "</td>" +
+              "<td>" + fmt(it.start_price) + "</td>" +
+              "<td>" + fmt(it.end_price) + "</td>" +
+              '<td class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</td>" +
+              "</tr>";
+          }).join("");
+        })
+        .catch(function () {
+          document.getElementById("bt-stock-meta").textContent = "单股详情接口请求失败";
+          document.getElementById("bt-stock-body").innerHTML =
+            '<tr><td colspan="4" class="empty">加载失败</td></tr>';
+        });
+    }
+
+    document.getElementById("tab-analyze").addEventListener("change", function (ev) {
+      var t = ev.target;
+      if (!t || !t.name) return;
+      if (t.name === "bt-level" || t.name === "bt-days") loadBtSummary();
+    });
+    document.getElementById("bt-summary-body").addEventListener("click", function (ev) {
+      var tr = ev.target;
+      while (tr && tr.tagName !== "TR") tr = tr.parentNode;
+      if (!tr || !tr.classList.contains("combo-row")) return;
+      var rows = document.querySelectorAll("#bt-summary-body .combo-row");
+      Array.prototype.forEach.call(rows, function (el) { el.classList.remove("selected"); });
+      tr.classList.add("selected");
+      loadBtGroup(tr.getAttribute("data-combo") || "");
+    });
+    document.getElementById("bt-group-body").addEventListener("click", function (ev) {
+      var tr = ev.target;
+      while (tr && tr.tagName !== "TR") tr = tr.parentNode;
+      if (!tr || !tr.classList.contains("bt-hit-row")) return;
+      var rows = document.querySelectorAll("#bt-group-body .bt-hit-row");
+      Array.prototype.forEach.call(rows, function (el) { el.classList.remove("selected"); });
+      tr.classList.add("selected");
+      loadBtStock(tr.getAttribute("data-dm") || "", selectedBtCombo);
+    });
+    loadBtSummary();
+
     document.getElementById("factor-box").innerHTML = FACTORS.map(function (name) {
       return '<label><input type="checkbox" value="' + name + '"> ' + (FACTOR_CN[name] || name) + "</label>";
     }).join("");
     document.getElementById("factor-box").addEventListener("change", syncFactorChecks);
     syncFactorChecks();
-
-    document.getElementById("combo-head").addEventListener("click", function (ev) {
-      var th = ev.target;
-      if (!th || !th.getAttribute) return;
-      if (th.tagName !== "TH" || !th.classList.contains("sortable")) return;
-      var key = th.getAttribute("data-key");
-      if (!key) return;
-      if (comboSortKey === key) {
-        comboSortDir = comboSortDir === "desc" ? "asc" : "desc";
-      } else {
-        comboSortKey = key;
-        comboSortDir = key === "combo" || key === "period" ? "asc" : "desc";
-      }
-      renderComboTable();
-    });
-
-    fetch("/api/combos")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        comboAll = data.combos || [];
-        renderComboTable();
-      })
-      .catch(function () {
-        document.getElementById("combo-meta").textContent = "组合排行接口请求失败";
-        document.getElementById("combo-body").innerHTML =
-          '<tr><td colspan="7" class="empty">加载失败</td></tr>';
-      });
 
     document.getElementById("backtest-btn").addEventListener("click", function () {
       var names = selectedFactors();
