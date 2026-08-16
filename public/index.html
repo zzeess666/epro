@@ -32,63 +32,83 @@
     .controls select, .controls button { padding: 6px 12px; margin-right: 8px; }
     .controls button[disabled] { opacity: 0.55; cursor: not-allowed; }
     #kline-chart { width: 100%; max-width: 900px; height: 420px; background: #fff; margin-top: 12px; border: 1px solid #ddd; display: none; }
+    .tab-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+    .tab-btn { padding: 8px 16px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 14px; border-radius: 4px; }
+    .tab-btn:hover { background: #f0f7ff; }
+    .tab-btn.active { background: #1677ff; color: #fff; border-color: #1677ff; }
+    .tab-pane { display: none; }
   </style>
 </head>
 <body>
-  <h1>EPro 今日推荐</h1>
-  <div class="meta" id="rec-date">加载中…</div>
-  <div id="alerts"></div>
-  <table>
-    <thead>
-      <tr>
-        <th>代码</th>
-        <th>策略</th>
-        <th>评分</th>
-        <th>买入价</th>
-        <th>止损价</th>
-      </tr>
-    </thead>
-    <tbody id="recommend-body">
-      <tr><td colspan="5" class="empty">加载中…</td></tr>
-    </tbody>
-  </table>
+  <h1>EPro 推荐</h1>
+  <div class="tab-bar" id="tab-bar">
+    <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
+    <button type="button" class="tab-btn" data-tab="history">历史回放</button>
+    <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
+  </div>
 
-  <h2>跟踪状态</h2>
-  <div class="meta" id="track-date"></div>
-  <table>
-    <thead>
-      <tr>
-        <th>代码</th>
-        <th>状态</th>
-        <th>最新价</th>
-        <th>买入价</th>
-        <th>止损价</th>
-      </tr>
-    </thead>
-    <tbody id="track-body">
-      <tr><td colspan="5" class="empty">加载中…</td></tr>
-    </tbody>
-  </table>
+  <div id="tab-recommend" class="tab-pane" style="display:block">
+    <div class="meta" id="rec-date">加载中…</div>
+    <div id="alerts"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>代码</th>
+          <th>策略</th>
+          <th>评分</th>
+          <th>买入价</th>
+          <th>止损价</th>
+        </tr>
+      </thead>
+      <tbody id="recommend-body">
+        <tr><td colspan="5" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
 
-  <h2>历史回放</h2>
-  <div class="meta" id="history-meta">加载中…</div>
-  <table>
-    <thead>
-      <tr>
-        <th>买入日</th>
-        <th>代码</th>
-        <th>名称</th>
-        <th>买入价</th>
-        <th>止损价</th>
-        <th>收益</th>
-      </tr>
-    </thead>
-    <tbody id="history-body">
-      <tr><td colspan="6" class="empty">加载中…</td></tr>
-    </tbody>
-  </table>
+    <h2>跟踪状态</h2>
+    <div class="meta" id="track-date"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>代码</th>
+          <th>状态</th>
+          <th>最新价</th>
+          <th>买入价</th>
+          <th>止损价</th>
+        </tr>
+      </thead>
+      <tbody id="track-body">
+        <tr><td colspan="5" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
+  </div>
 
-  <h2>组合胜率排行</h2>
+  <div id="tab-history" class="tab-pane" style="display:none">
+    <h2>历史回放</h2>
+    <div class="meta" id="history-meta">加载中…</div>
+    <table>
+      <thead>
+        <tr>
+          <th>买入日</th>
+          <th>代码</th>
+          <th>名称</th>
+          <th>买入价</th>
+          <th>止损价</th>
+          <th>收益</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="6" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
+    <div id="kline-wrap">
+      <div class="meta" id="chart-title"></div>
+      <div id="kline-chart"></div>
+    </div>
+  </div>
+
+  <div id="tab-analyze" class="tab-pane" style="display:none">
+    <h2>组合胜率排行</h2>
   <div class="meta" id="combo-meta">加载中…</div>
   <table class="wide">
     <thead>
@@ -138,12 +158,34 @@
       <tr><td colspan="6" class="empty">请勾选因子后回溯</td></tr>
     </tbody>
   </table>
-  <div class="meta" id="chart-title"></div>
-  <div id="kline-chart"></div>
+  </div>
 
   <script src="/echarts.min.js"></script>
 
   <script>
+    var FACTOR_CN = {
+      "macd_golden": "MACD金叉",
+      "gap_up": "跳空高开",
+      "one_yang_3ma": "一阳穿三线",
+      "ma_bull": "多头排列",
+      "above_ma20": "站上20日线",
+      "ma5_cross_10": "5日穿10日",
+      "second_breakout": "二次突破",
+      "shrink_pullback": "缩量回调",
+      "volume_ratio_high": "放量突破",
+      "new_high_20": "创20日新高",
+      "limit_up": "涨停",
+      "expma_golden": "EXPMA金叉",
+      "box_breakout": "箱体突破",
+      "kline_reversal": "K线反转"
+    };
+    function comboCn(combo) {
+      if (combo === null || combo === undefined || combo === "") return "-";
+      return String(combo).split("+").map(function (name) {
+        name = name.replace(/^\s+|\s+$/g, "");
+        return FACTOR_CN[name] || name;
+      }).join("+");
+    }
     function fmt(v) {
       if (v === null || v === undefined || v === "") return "-";
       if (typeof v === "number") return v.toFixed(2);
@@ -230,6 +272,36 @@
 
     var historyRecords = [];
     var historyChart = null;
+
+    function switchTab(name) {
+      if (!name) return;
+      var panes = ["recommend", "history", "analyze"];
+      for (var i = 0; i < panes.length; i++) {
+        var pane = document.getElementById("tab-" + panes[i]);
+        if (pane) pane.style.display = panes[i] === name ? "block" : "none";
+      }
+      var btns = document.querySelectorAll(".tab-btn");
+      Array.prototype.forEach.call(btns, function (btn) {
+        if (btn.getAttribute("data-tab") === name) btn.classList.add("active");
+        else btn.classList.remove("active");
+      });
+      var wrap = document.getElementById("kline-wrap");
+      var hostId = name === "analyze" ? "tab-analyze" : "tab-history";
+      var host = document.getElementById(hostId);
+      if (wrap && host && wrap.parentNode !== host) host.appendChild(wrap);
+      if (historyChart && (name === "history" || name === "analyze")) {
+        setTimeout(function () {
+          var box = document.getElementById("kline-chart");
+          if (historyChart && box && box.style.display !== "none") historyChart.resize();
+        }, 0);
+      }
+    }
+    document.getElementById("tab-bar").addEventListener("click", function (ev) {
+      var btn = ev.target;
+      if (!btn || !btn.getAttribute) return;
+      if (btn.tagName !== "BUTTON" || !btn.classList.contains("tab-btn")) return;
+      switchTab(btn.getAttribute("data-tab"));
+    });
 
     function retClass(v) {
       if (typeof v !== "number") return "";
@@ -368,7 +440,7 @@
         var wr = data.win_rate;
         var exp = data.expectation;
         document.getElementById("history-meta").textContent =
-          "最优组合 " + combo +
+          "最优组合 " + comboCn(combo) +
           "　周期 " + period +
           "　胜率 " + (wr == null ? "-" : Number(wr).toFixed(2) + "%") +
           "　期望收益 " + (exp == null ? "-" : Number(exp).toFixed(2));
@@ -507,7 +579,7 @@
       }
       document.getElementById("combo-body").innerHTML = top.map(function (it) {
         return "<tr>" +
-          "<td>" + (it.combo || "-") + "</td>" +
+          "<td>" + comboCn(it.combo) + "</td>" +
           "<td>" + (it.period || "-") + "</td>" +
           "<td>" + fmtPct(it.test_win_rate) + "</td>" +
           "<td>" + fmtNum(it.test_expectation) + "</td>" +
@@ -539,7 +611,7 @@
     }
 
     document.getElementById("factor-box").innerHTML = FACTORS.map(function (name) {
-      return '<label><input type="checkbox" value="' + name + '"> ' + name + "</label>";
+      return '<label><input type="checkbox" value="' + name + '"> ' + (FACTOR_CN[name] || name) + "</label>";
     }).join("");
     document.getElementById("factor-box").addEventListener("change", syncFactorChecks);
     syncFactorChecks();
@@ -604,7 +676,7 @@
           var n = data.test_sample;
           var recs = data.records || [];
           document.getElementById("backtest-meta").textContent =
-            "组合 " + (data.combo || "-") +
+            "组合 " + comboCn(data.combo) +
             "　周期 " + (data.period || "-") +
             "　胜率 " + (wr == null ? "-" : Number(wr).toFixed(2) + "%") +
             "　期望 " + (exp == null ? "-" : Number(exp).toFixed(2)) +
