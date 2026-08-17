@@ -137,11 +137,11 @@
     </div>
     <div class="radio-row">
       <span class="radio-title">样本范围</span>
-      <label><input type="radio" name="bt-days" value="3"> 3天</label>
+      <label><input type="radio" name="bt-days" value="3" checked> 3天</label>
       <label><input type="radio" name="bt-days" value="7"> 7天</label>
       <label><input type="radio" name="bt-days" value="15"> 15天</label>
       <label><input type="radio" name="bt-days" value="30"> 30天</label>
-      <label><input type="radio" name="bt-days" value="60" checked> 60天</label>
+      <label><input type="radio" name="bt-days" value="60"> 60天</label>
     </div>
 
     <h2>组合汇总</h2>
@@ -596,10 +596,12 @@
         .then(function (r) { return r.json(); })
         .then(function (data) {
           var list = (data && data.list) || [];
+          // 只显示胜率>45%的组合
+          list = list.filter(function(it) { return (it.win_rate || 0) > 45; });
           document.getElementById("bt-summary-meta").textContent =
             "周期 " + (data.day_level == null ? p.day_level : data.day_level) +
             "　样本范围 " + (data.days == null ? p.days : data.days) + " 天　共 " +
-            list.length + " 个组合（按胜率降序）";
+            list.length + " 个组合（胜率>45%，按胜率降序）";
           if (!list.length) {
             document.getElementById("bt-summary-body").innerHTML =
               '<tr><td colspan="6" class="empty">暂无回溯数据，请先运行 bt_build.py</td></tr>';
