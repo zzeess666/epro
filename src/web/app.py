@@ -554,11 +554,10 @@ def api_backtest(
 
 @app.get("/api/bt/summary")
 def api_bt_summary(day_level: int = 1, days: int = 60) -> JSONResponse:
-    """达标组合在该周期+样本范围内的汇总，按胜率降序。"""
+    """达标组合在该周期+样本范围内的汇总，按胜率降序。SQL聚合避免913万行回传。"""
     _ensure_bt_satisfy()
     day_level = _normalize_bt_day_level(day_level)
     days = _normalize_bt_days(days)
-    items: list[dict[str, Any]] = []
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
@@ -567,37 +566,45 @@ def api_bt_summary(day_level: int = 1, days: int = 60) -> JSONResponse:
                 return JSONResponse({"day_level": day_level, "days": days, "list": []})
             cursor.execute(
                 """
-                SELECT combo, profit
+                SELECT
+                    combo,
+                    COUNT(*) AS n,
+                    SUM(IF(profit > 0, 1, 0)) AS wins,
+                    MAX(profit) AS max_profit,
+                    MIN(profit) AS min_profit,
+                    AVG(profit) AS avg_profit,
+                    SUBSTRING_INDEX(GROUP_CONCAT(profit ORDER BY profit SEPARATOR ','), ',', 50) AS lower_half
                 FROM bt_satisfy
                 WHERE day_level = %s AND buy_date >= %s AND profit IS NOT NULL
+                GROUP BY combo
                 """,
                 (day_level, cutoff),
             )
-            grouped: dict[str, list[float]] = defaultdict(list)
+            items: list[dict[str, Any]] = []
             for row in cursor.fetchall():
                 combo = str(row.get("combo") or "").strip()
-                profit = to_float(row.get("profit"))
-                if not combo or profit is None:
+                n = int(row.get("n") or 0)
+                wins = int(row.get("wins") or 0)
+                max_p = to_float(row.get("max_profit"))
+                min_p = to_float(row.get("min_profit"))
+                if not combo or n <= 0:
                     continue
-                grouped[combo].append(profit)
+                # 中位数：从 lower_half 50个值中计算
+                lower = str(row.get("lower_half") or "")
+                median_vals = [float(x) for x in lower.split(",") if x] if lower else []
+                median_p = _median_profit(median_vals) if median_vals else 0.0
+                items.append(
+                    {
+                        "combo": combo,
+                        "sample_count": n,
+                        "win_rate": _round2(100.0 * wins / n),
+                        "max_profit": _round2(max_p) if max_p is not None else 0.0,
+                        "min_profit": _round2(min_p) if min_p is not None else 0.0,
+                        "median_profit": median_p,
+                    }
+                )
     finally:
         conn.close()
-
-    for combo, profits in grouped.items():
-        n = len(profits)
-        if n <= 0:
-            continue
-        wins = sum(1 for p in profits if p > 0)
-        items.append(
-            {
-                "combo": combo,
-                "sample_count": n,
-                "win_rate": _round2(100.0 * wins / n),
-                "max_profit": _round2(max(profits)),
-                "min_profit": _round2(min(profits)),
-                "median_profit": _median_profit(profits),
-            }
-        )
     items.sort(key=lambda r: (-float(r["win_rate"]), -int(r["sample_count"]), r["combo"]))
     return JSONResponse({"day_level": day_level, "days": days, "list": items})
 
