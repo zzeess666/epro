@@ -2,213 +2,117 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EPro 推荐</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>EPro 投研</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
   <style>
-    body { font-family: sans-serif; margin: 24px; color: #222; background: #fafafa; padding-bottom: 80px; }
-    h1 { font-size: 22px; margin: 0 0 8px; }
-    h2 { font-size: 16px; margin: 24px 0 8px; }
-    .meta { color: #666; font-size: 13px; margin-bottom: 12px; }
-    table { border-collapse: collapse; width: 100%; max-width: 900px; background: #fff; }
-    table.wide { max-width: 1100px; }
-    .table-scroll { max-height: 420px; overflow-y: auto; max-width: 1100px; }
-    .table-scroll.stock { max-height: 300px; }
-    .table-scroll table { max-width: 100%; border-collapse: separate; border-spacing: 0; }
-    .table-scroll thead { position: sticky; top: 0; z-index: 1; }
-    .table-scroll thead th { position: sticky; top: 0; z-index: 1; background: #f0f0f0; }
-    th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; font-size: 14px; }
-    th { background: #f0f0f0; }
-    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-    th.sortable:hover { background: #e4e4e4; }
-    th.sorted { background: #dbeafe; }
-    .ok { color: #0a7; font-weight: 600; }
-    .fail { color: #c33; font-weight: 600; }
-    .watch { color: #c80; }
-    .empty { color: #888; }
-    .alert { background: #fff7e6; border: 1px solid #f0c36d; padding: 8px 12px; margin: 8px 0 16px; max-width: 900px; }
-    .history-row { cursor: pointer; }
-    .history-row:hover { background: #f5f5f5; }
-    .history-row.selected { background: #e6f4ff; }
-    .up { color: #c33; font-weight: 600; }
-    .down { color: #0a7; font-weight: 600; }
-    #kline-chart { width: 100%; max-width: 900px; height: 420px; background: #fff; margin-top: 12px; border: 1px solid #ddd; display: none; }
-    .tab-bar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; margin: 0; padding: 8px 12px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); background: #fff; border-top: 1px solid #ddd; z-index: 100; gap: 8px; }
-    .tab-btn { flex: 1; padding: 10px 16px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 14px; border-radius: 4px; }
-    .tab-btn:hover { background: #f0f7ff; }
-    .tab-btn.active { background: #1677ff; color: #fff; border-color: #1677ff; }
-    #bt-stock-kline { max-width: 545px; width: 100%; display: none; margin: 8px 0 12px; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
     .tab-pane { display: none; }
-    .radio-row { margin: 8px 0 12px; font-size: 14px; }
-    .radio-title { display: inline-block; min-width: 72px; color: #555; }
-    .radio-row label { margin-right: 14px; }
-    .combo-row, .bt-hit-row { cursor: pointer; }
-    .combo-row:hover, .bt-hit-row:hover { background: #f5f5f5; }
-    .combo-row.selected, .bt-hit-row.selected { background: #e6f4ff; }
-    .combo-link { color: #1677ff; text-decoration: underline; cursor: pointer; }
-    .combo-link:hover { color: #0958d9; }
-    .signal-item { background: #fff; border: 1px solid #ddd; padding: 12px; margin: 0 0 12px; max-width: 900px; }
-    .signal-fields { font-size: 14px; line-height: 1.8; }
-    .signal-fields span { margin-right: 16px; display: inline-block; }
-    .signal-kline { max-width: 545px; width: 100%; display: block; margin-top: 8px; }
+    .up { color: #e54545; font-weight: 600; }
+    .down { color: #1aab5a; font-weight: 600; }
+    .ok { color: #1aab5a; font-weight: 600; }
+    .fail { color: #e54545; font-weight: 600; }
+    .watch { color: #c80; }
+    .alert { background: #fff7e6; border: 1px solid #f0c36d; padding: 8px 12px; margin-bottom: 10px; border-radius: 8px; font-size: 13px; }
+    .combo-link { color: var(--primary); text-decoration: none; cursor: pointer; }
+    .follow-item, .stock-item.bt-hit-row, .history-row { cursor: pointer; }
+    .follow-item.selected, .stock-item.selected {
+      background: #f8fbff;
+      margin-left: -8px;
+      margin-right: -8px;
+      padding-left: 8px;
+      padding-right: 8px;
+      border-radius: 8px;
+    }
+    #kline-chart { width: 100%; height: 320px; }
+    .signal-kline { display: block; width: 100%; max-width: 100%; height: auto; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>EPro 推荐</h1>
+  <div id="app">
+    <div class="header">EPro 投研</div>
 
-  <div id="tab-recommend" class="tab-pane" style="display:block">
-    <div class="meta" id="rec-date">加载中…</div>
-    <div id="alerts"></div>
-    <table>
-      <thead>
-        <tr>
-          <th>代码</th>
-          <th>策略</th>
-          <th>评分</th>
-          <th>买入价</th>
-          <th>止损价</th>
-        </tr>
-      </thead>
-      <tbody id="recommend-body">
-        <tr><td colspan="5" class="empty">加载中…</td></tr>
-      </tbody>
-    </table>
-
-    <h2>跟踪状态</h2>
-    <div class="meta" id="track-date"></div>
-    <table>
-      <thead>
-        <tr>
-          <th>代码</th>
-          <th>状态</th>
-          <th>最新价</th>
-          <th>买入价</th>
-          <th>止损价</th>
-        </tr>
-      </thead>
-      <tbody id="track-body">
-        <tr><td colspan="5" class="empty">加载中…</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div id="tab-signal" class="tab-pane" style="display:none">
-    <h2>当日信号</h2>
-    <div class="meta" id="signal-meta">从回溯分析点击组合名查看当日信号</div>
-    <div id="signal-list">
-      <div class="empty">从回溯分析点击组合名查看当日信号</div>
-    </div>
-  </div>
-
-  <div id="tab-history" class="tab-pane" style="display:none">
-    <h2>历史回放</h2>
-    <div class="meta" id="history-meta">加载中…</div>
-    <table>
-      <thead>
-        <tr>
-          <th>买入日</th>
-          <th>代码</th>
-          <th>名称</th>
-          <th>买入价</th>
-          <th>止损价</th>
-          <th>收益</th>
-        </tr>
-      </thead>
-      <tbody id="history-body">
-        <tr><td colspan="6" class="empty">加载中…</td></tr>
-      </tbody>
-    </table>
-    <div id="kline-wrap">
-      <div class="meta" id="chart-title"></div>
-      <div id="kline-chart"></div>
-    </div>
-  </div>
-
-  <div id="tab-analyze" class="tab-pane" style="display:none">
-    <h2>回溯分析</h2>
-    <div class="radio-row">
-      <span class="radio-title">收益周期</span>
-      <label><input type="radio" name="bt-level" value="1" checked> 1</label>
-      <label><input type="radio" name="bt-level" value="2"> 2</label>
-      <label><input type="radio" name="bt-level" value="3"> 3</label>
-      <label><input type="radio" name="bt-level" value="5"> 5</label>
-      <label><input type="radio" name="bt-level" value="7"> 7</label>
-      <label><input type="radio" name="bt-level" value="20"> 20</label>
-      <label><input type="radio" name="bt-level" value="60"> 60</label>
-    </div>
-    <div class="radio-row">
-      <span class="radio-title">样本范围</span>
-      <label><input type="radio" name="bt-days" value="3" checked> 3天</label>
-      <label><input type="radio" name="bt-days" value="7"> 7天</label>
-      <label><input type="radio" name="bt-days" value="15"> 15天</label>
-      <label><input type="radio" name="bt-days" value="30"> 30天</label>
-      <label><input type="radio" name="bt-days" value="60"> 60天</label>
+    <div id="tab-recommend" class="tab-pane" style="display:block">
+      <div class="panel">
+        <div id="alerts"></div>
+        <div class="card">
+          <div class="meta" id="rec-date">加载中…</div>
+          <div id="recommend-list"><div class="muted">加载中…</div></div>
+        </div>
+        <div class="card" id="track-card">
+          <h3>跟踪状态</h3>
+          <div class="meta" id="track-date"></div>
+          <div id="track-list"><div class="muted">加载中…</div></div>
+        </div>
+      </div>
     </div>
 
-    <h2>组合汇总</h2>
-    <div class="meta" id="bt-summary-meta">加载中…</div>
-    <div class="table-scroll">
-      <table class="wide">
-        <thead>
-          <tr>
-            <th>组合名</th>
-            <th>样本数</th>
-            <th>胜率</th>
-            <th>最大盈利</th>
-            <th>最小盈利</th>
-            <th>中位数盈利</th>
-          </tr>
-        </thead>
-        <tbody id="bt-summary-body">
-          <tr><td colspan="6" class="empty">加载中…</td></tr>
-        </tbody>
-      </table>
+    <div id="tab-signal" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div class="meta" id="signal-meta">从回溯分析点击组合名查看</div>
+          <div id="signal-list"><div class="muted">从回溯分析点击组合名查看当日信号</div></div>
+        </div>
+      </div>
     </div>
 
-    <h2>命中详情</h2>
-    <div class="meta" id="bt-group-meta">点击上方组合查看详情</div>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>日期</th>
-            <th>代码</th>
-            <th>名称</th>
-            <th>起始价</th>
-            <th>目标价</th>
-            <th>收益</th>
-          </tr>
-        </thead>
-        <tbody id="bt-group-body">
-          <tr><td colspan="6" class="empty">点击上方组合查看详情</td></tr>
-        </tbody>
-      </table>
+    <div id="tab-history" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div class="meta" id="history-meta">加载中…</div>
+          <div id="history-list" class="bt-scroll"></div>
+        </div>
+        <div class="card" id="kline-card" style="display:none">
+          <div class="meta" id="chart-title"></div>
+          <div id="kline-chart" style="width:100%;height:320px"></div>
+        </div>
+      </div>
     </div>
 
-    <h2>单股详情</h2>
-    <div class="meta" id="bt-stock-meta">点击命中详情中的股票查看单股回溯</div>
-    <img id="bt-stock-kline" alt="日K" onerror="this.style.display='none'">
-    <div class="table-scroll stock">
-      <table>
-        <thead>
-          <tr>
-            <th>日期</th>
-            <th>起始价</th>
-            <th>目标价</th>
-            <th>收益</th>
-          </tr>
-        </thead>
-        <tbody id="bt-stock-body">
-          <tr><td colspan="4" class="empty">点击命中详情中的股票查看单股回溯</td></tr>
-        </tbody>
-      </table>
+    <div id="tab-analyze" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div class="filters" id="bt-level-filters">
+            <div class="control-title">收益周期</div>
+            <span class="chip active" data-value="1">1</span>
+            <span class="chip" data-value="2">2</span>
+            <span class="chip" data-value="3">3</span>
+            <span class="chip" data-value="5">5</span>
+            <span class="chip" data-value="7">7</span>
+            <span class="chip" data-value="20">20</span>
+            <span class="chip" data-value="60">60</span>
+          </div>
+          <div class="filters" id="bt-days-filters" style="margin-top:8px">
+            <div class="control-title">样本范围</div>
+            <span class="chip active" data-value="3">3天</span>
+            <span class="chip" data-value="7">7天</span>
+            <span class="chip" data-value="15">15天</span>
+            <span class="chip" data-value="30">30天</span>
+            <span class="chip" data-value="60">60天</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="meta" id="bt-summary-meta">加载中…</div>
+          <div id="bt-summary-list" class="bt-scroll"></div>
+        </div>
+        <div class="card">
+          <div class="meta" id="bt-group-meta">点击上方组合查看详情</div>
+          <div id="bt-group-list" class="bt-scroll"></div>
+        </div>
+        <div class="card">
+          <div class="meta" id="bt-stock-meta">点击命中详情中的股票查看</div>
+          <img id="bt-stock-kline" class="chart-img" alt="日K" style="display:none" onerror="this.style.display='none'">
+          <div id="bt-stock-list" class="bt-scroll" style="margin-top:8px"></div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <div class="tab-bar" id="tab-bar">
-    <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
-    <button type="button" class="tab-btn" data-tab="signal">当日信号</button>
-    <button type="button" class="tab-btn" data-tab="history">历史回放</button>
-    <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
+    <div class="tabbar" id="tab-bar">
+      <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
+      <button type="button" class="tab-btn" data-tab="signal">当日信号</button>
+      <button type="button" class="tab-btn" data-tab="history">历史回放</button>
+      <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
+    </div>
   </div>
 
   <script src="/echarts.min.js"></script>
@@ -254,12 +158,12 @@
       if (s === "不达标") return "fail";
       return "watch";
     }
-    function renderTable(tbody, rows, cols, emptyText) {
+    function renderList(el, rows, emptyText) {
       if (!rows || !rows.length) {
-        tbody.innerHTML = '<tr><td colspan="' + cols + '" class="empty">' + emptyText + "</td></tr>";
+        el.innerHTML = '<div class="muted">' + emptyText + "</div>";
         return;
       }
-      tbody.innerHTML = rows.map(function (r) { return r; }).join("");
+      el.innerHTML = rows.map(function (r) { return r; }).join("");
     }
 
     fetch("/api/recommend")
@@ -268,25 +172,28 @@
         document.getElementById("rec-date").textContent =
           data.date ? ("推荐日 " + data.date + "（最多 3 只）") : "暂无推荐";
         var items = data.items || [];
-        renderTable(
-          document.getElementById("recommend-body"),
+        renderList(
+          document.getElementById("recommend-list"),
           items.map(function (it) {
-            return "<tr>" +
-              "<td>" + (it.dm || "-") + (it.mc ? " " + it.mc : "") + "</td>" +
-              "<td>" + (it.strategy || "-") + "</td>" +
-              "<td>" + fmt(it.score) + "</td>" +
-              "<td>" + fmt(it.entry_price) + "</td>" +
-              "<td>" + fmt(it.stop_loss) + "</td>" +
-              "</tr>";
+            return '<div class="stock-item">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main"><a>' +
+              (it.dm || "-") + (it.mc ? " " + it.mc : "") +
+              "</a></div>" +
+              "<strong>" + fmt(it.score) + "</strong>" +
+              "</div>" +
+              '<div class="stock-sub muted">策略 ' + (it.strategy || "-") + "</div>" +
+              '<div class="stock-meta muted">买入 ' + fmt(it.entry_price) +
+              "　止损 " + fmt(it.stop_loss) + "</div>" +
+              "</div>";
           }),
-          5,
           "暂无推荐"
         );
       })
       .catch(function () {
         document.getElementById("rec-date").textContent = "推荐接口请求失败";
-        document.getElementById("recommend-body").innerHTML =
-          '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+        document.getElementById("recommend-list").innerHTML =
+          '<div class="muted">加载失败</div>';
       });
 
     fetch("/api/track")
@@ -307,25 +214,28 @@
           }).join("");
         }
         var items = data.items || [];
-        renderTable(
-          document.getElementById("track-body"),
+        renderList(
+          document.getElementById("track-list"),
           items.map(function (it) {
-            return "<tr>" +
-              "<td>" + (it.dm || "-") + (it.mc ? " " + it.mc : "") + "</td>" +
-              '<td class="' + statusClass(it.status) + '">' + (it.status || "-") + "</td>" +
-              "<td>" + fmt(it.current_price) + "</td>" +
-              "<td>" + fmt(it.entry_price) + "</td>" +
-              "<td>" + fmt(it.stop_loss) + "</td>" +
-              "</tr>";
+            return '<div class="stock-item">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main"><a>' +
+              (it.dm || "-") + (it.mc ? " " + it.mc : "") +
+              "</a></div>" +
+              '<span class="' + statusClass(it.status) + '">' + (it.status || "-") + "</span>" +
+              "</div>" +
+              '<div class="stock-meta muted">最新 ' + fmt(it.current_price) +
+              "　买入 " + fmt(it.entry_price) +
+              "　止损 " + fmt(it.stop_loss) + "</div>" +
+              "</div>";
           }),
-          5,
           "暂无跟踪"
         );
       })
       .catch(function () {
         document.getElementById("track-date").textContent = "跟踪接口请求失败";
-        document.getElementById("track-body").innerHTML =
-          '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+        document.getElementById("track-list").innerHTML =
+          '<div class="muted">加载失败</div>';
       });
 
     var historyRecords = [];
@@ -346,7 +256,8 @@
       if (historyChart && name === "history") {
         setTimeout(function () {
           var box = document.getElementById("kline-chart");
-          if (historyChart && box && box.style.display !== "none") historyChart.resize();
+          var card = document.getElementById("kline-card");
+          if (historyChart && box && card && card.style.display !== "none") historyChart.resize();
         }, 0);
       }
     }
@@ -371,6 +282,13 @@
       if (!s) return "";
       return String(s).slice(5);
     }
+    function setKlineVisible(show) {
+      var box = document.getElementById("kline-chart");
+      var card = document.getElementById("kline-card");
+      var display = show ? "block" : "none";
+      if (box) box.style.display = display;
+      if (card) card.style.display = display;
+    }
     function renderKline(rec) {
       var box = document.getElementById("kline-chart");
       var title = document.getElementById("chart-title");
@@ -381,7 +299,7 @@
         " 买入 " + fmt(rec.entry) +
         " 止损 " + fmt(rec.stop);
       if (typeof echarts === "undefined") {
-        box.style.display = "none";
+        setKlineVisible(false);
         title.textContent += "（ECharts 未加载）";
         return;
       }
@@ -391,12 +309,12 @@
         .then(function (data) {
           var klines = (data && data.klines) || [];
           if (!klines.length) {
-            box.style.display = "none";
+            setKlineVisible(false);
             title.textContent = title.textContent.replace("　K线加载中…", "（无K线数据）");
             return;
           }
           title.textContent = title.textContent.replace("　K线加载中…", "");
-          box.style.display = "block";
+          setKlineVisible(true);
           void box.offsetWidth;
           if (box.scrollIntoView) {
             box.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -481,7 +399,7 @@
           }, true);
         })
         .catch(function () {
-          box.style.display = "none";
+          setKlineVisible(false);
           title.textContent = title.textContent.replace("　K线加载中…", "（K线加载失败）");
         });
     }
@@ -500,36 +418,39 @@
           "　期望收益 " + (exp == null ? "-" : Number(exp).toFixed(2));
         historyRecords = data.records || [];
         if (!historyRecords.length) {
-          document.getElementById("history-body").innerHTML =
-            '<tr><td colspan="6" class="empty">暂无历史回放，请先运行 replay_save.py</td></tr>';
+          document.getElementById("history-list").innerHTML =
+            '<div class="muted">暂无历史回放，请先运行 replay_save.py</div>';
           return;
         }
-        document.getElementById("history-body").innerHTML = historyRecords.map(function (it, i) {
-          return '<tr class="history-row" data-idx="' + i + '">' +
-            "<td>" + (it.buy_date || "-") + "</td>" +
-            "<td>" + (it.dm || "-") + "</td>" +
-            "<td>" + (it.mc || "-") + "</td>" +
-            "<td>" + fmt(it.entry) + "</td>" +
-            "<td>" + fmt(it.stop) + "</td>" +
-            '<td class="' + retClass(it.ret) + '">' + fmtRet(it.ret) + "</td>" +
-            "</tr>";
+        document.getElementById("history-list").innerHTML = historyRecords.map(function (it, i) {
+          return '<div class="follow-item history-row" data-idx="' + i + '">' +
+            '<div class="follow-item-head">' +
+            '<span class="follow-code">' + (it.dm || "-") + " " + (it.mc || "-") + "</span>" +
+            '<span class="' + retClass(it.ret) + '">' + fmtRet(it.ret) + "</span>" +
+            "</div>" +
+            '<div class="follow-fields">' +
+            '<div><span class="follow-label">买入日</span>' + (it.buy_date || "-") + "</div>" +
+            '<div><span class="follow-label">买入价</span>' + fmt(it.entry) + "</div>" +
+            '<div><span class="follow-label">止损</span>' + fmt(it.stop) + "</div>" +
+            "</div>" +
+            "</div>";
         }).join("");
-        bindKlineRows(document.getElementById("history-body"), historyRecords);
+        bindKlineRows(document.getElementById("history-list"), historyRecords);
       })
       .catch(function () {
         document.getElementById("history-meta").textContent = "历史回放接口请求失败";
-        document.getElementById("history-body").innerHTML =
-          '<tr><td colspan="6" class="empty">加载失败</td></tr>';
+        document.getElementById("history-list").innerHTML =
+          '<div class="muted">加载失败</div>';
       });
 
-    function bindKlineRows(tbody, records) {
-      var rows = tbody.querySelectorAll(".history-row");
-      Array.prototype.forEach.call(rows, function (tr) {
-        tr.addEventListener("click", function () {
+    function bindKlineRows(list, records) {
+      var rows = list.querySelectorAll(".history-row");
+      Array.prototype.forEach.call(rows, function (el) {
+        el.addEventListener("click", function () {
           var all = document.querySelectorAll(".history-row");
-          Array.prototype.forEach.call(all, function (el) { el.classList.remove("selected"); });
-          tr.classList.add("selected");
-          var idx = parseInt(tr.getAttribute("data-idx"), 10);
+          Array.prototype.forEach.call(all, function (item) { item.classList.remove("selected"); });
+          el.classList.add("selected");
+          var idx = parseInt(el.getAttribute("data-idx"), 10);
           renderKline(records[idx]);
         });
       });
@@ -565,31 +486,35 @@
     function btParams() {
       var level = "1";
       var days = "60";
-      var levels = document.querySelectorAll('input[name="bt-level"]');
-      Array.prototype.forEach.call(levels, function (el) { if (el.checked) level = el.value; });
-      var dayRadios = document.querySelectorAll('input[name="bt-days"]');
-      Array.prototype.forEach.call(dayRadios, function (el) { if (el.checked) days = el.value; });
+      var levels = document.querySelectorAll("#bt-level-filters .chip");
+      Array.prototype.forEach.call(levels, function (el) {
+        if (el.classList.contains("active")) level = el.getAttribute("data-value");
+      });
+      var dayChips = document.querySelectorAll("#bt-days-filters .chip");
+      Array.prototype.forEach.call(dayChips, function (el) {
+        if (el.classList.contains("active")) days = el.getAttribute("data-value");
+      });
       return { day_level: level, days: days };
     }
     function resetBtStock() {
       selectedBtDm = "";
       hideStockKline();
       document.getElementById("bt-stock-meta").textContent = "点击命中详情中的股票查看单股回溯";
-      document.getElementById("bt-stock-body").innerHTML =
-        '<tr><td colspan="4" class="empty">点击命中详情中的股票查看单股回溯</td></tr>';
+      document.getElementById("bt-stock-list").innerHTML =
+        '<div class="muted">点击命中详情中的股票查看单股回溯</div>';
     }
     function resetBtDetail() {
       selectedBtCombo = "";
       document.getElementById("bt-group-meta").textContent = "点击上方组合查看详情";
-      document.getElementById("bt-group-body").innerHTML =
-        '<tr><td colspan="6" class="empty">点击上方组合查看详情</td></tr>';
+      document.getElementById("bt-group-list").innerHTML =
+        '<div class="muted">点击上方组合查看详情</div>';
       resetBtStock();
     }
     function loadBtSummary() {
       var p = btParams();
       document.getElementById("bt-summary-meta").textContent = "加载中…";
-      document.getElementById("bt-summary-body").innerHTML =
-        '<tr><td colspan="6" class="empty">加载中…</td></tr>';
+      document.getElementById("bt-summary-list").innerHTML =
+        '<div class="muted">加载中…</div>';
       resetBtDetail();
       fetch("/api/bt/summary?day_level=" + encodeURIComponent(p.day_level) +
         "&days=" + encodeURIComponent(p.days))
@@ -603,25 +528,30 @@
             "　样本范围 " + (data.days == null ? p.days : data.days) + " 天　共 " +
             list.length + " 个组合（胜率>45%，按胜率降序）";
           if (!list.length) {
-            document.getElementById("bt-summary-body").innerHTML =
-              '<tr><td colspan="6" class="empty">暂无回溯数据，请先运行 bt_build.py</td></tr>';
+            document.getElementById("bt-summary-list").innerHTML =
+              '<div class="muted">暂无回溯数据，请先运行 bt_build.py</div>';
             return;
           }
-          document.getElementById("bt-summary-body").innerHTML = list.map(function (it) {
-            return '<tr class="combo-row" data-combo="' + String(it.combo || "") + '">' +
-              '<td><a href="javascript:void(0)" class="combo-link">' + comboCn(it.combo) + "</a></td>" +
-              "<td>" + (it.sample_count == null ? "-" : it.sample_count) + "</td>" +
-              "<td>" + fmtPct(it.win_rate) + "</td>" +
-              "<td>" + fmtPct(it.max_profit) + "</td>" +
-              "<td>" + fmtPct(it.min_profit) + "</td>" +
-              "<td>" + fmtPct(it.median_profit) + "</td>" +
-              "</tr>";
+          document.getElementById("bt-summary-list").innerHTML = list.map(function (it) {
+            return '<div class="follow-item combo-row" data-combo="' + String(it.combo || "") + '">' +
+              '<div class="follow-item-head">' +
+              '<a href="javascript:void(0)" class="follow-code combo-link">' + comboCn(it.combo) + "</a>" +
+              '<span class="' + retClass(it.win_rate) + '">' + fmtPct(it.win_rate) + "</span>" +
+              "</div>" +
+              '<div class="follow-fields">' +
+              '<div><span class="follow-label">样本数</span>' + (it.sample_count == null ? "-" : it.sample_count) + "</div>" +
+              '<div><span class="follow-label">胜率</span>' + fmtPct(it.win_rate) + "</div>" +
+              '<div><span class="follow-label">最大盈利</span>' + fmtPct(it.max_profit) + "</div>" +
+              '<div><span class="follow-label">最小盈利</span>' + fmtPct(it.min_profit) + "</div>" +
+              '<div><span class="follow-label">中位数盈利</span>' + fmtPct(it.median_profit) + "</div>" +
+              "</div>" +
+              "</div>";
           }).join("");
         })
         .catch(function () {
           document.getElementById("bt-summary-meta").textContent = "回溯汇总接口请求失败";
-          document.getElementById("bt-summary-body").innerHTML =
-            '<tr><td colspan="6" class="empty">加载失败</td></tr>';
+          document.getElementById("bt-summary-list").innerHTML =
+            '<div class="muted">加载失败</div>';
         });
     }
     function loadBtGroup(combo) {
@@ -629,8 +559,8 @@
       selectedBtCombo = combo || "";
       resetBtStock();
       document.getElementById("bt-group-meta").textContent = "加载中…";
-      document.getElementById("bt-group-body").innerHTML =
-        '<tr><td colspan="6" class="empty">加载中…</td></tr>';
+      document.getElementById("bt-group-list").innerHTML =
+        '<div class="muted">加载中…</div>';
       fetch("/api/bt/group?combo=" + encodeURIComponent(selectedBtCombo) +
         "&day_level=" + encodeURIComponent(p.day_level) +
         "&days=" + encodeURIComponent(p.days))
@@ -640,25 +570,28 @@
           document.getElementById("bt-group-meta").textContent =
             "组合 " + comboCn(data.combo || selectedBtCombo) + "　共 " + list.length + " 条";
           if (!list.length) {
-            document.getElementById("bt-group-body").innerHTML =
-              '<tr><td colspan="6" class="empty">该组合当前范围内无命中</td></tr>';
+            document.getElementById("bt-group-list").innerHTML =
+              '<div class="muted">该组合当前范围内无命中</div>';
             return;
           }
-          document.getElementById("bt-group-body").innerHTML = list.map(function (it) {
-            return '<tr class="bt-hit-row" data-dm="' + String(it.dm || "") + '">' +
-              "<td>" + (it.buy_date || "-") + "</td>" +
-              "<td>" + (it.dm || "-") + "</td>" +
-              "<td>" + (it.mc || "-") + "</td>" +
-              "<td>" + fmt(it.start_price) + "</td>" +
-              "<td>" + fmt(it.end_price) + "</td>" +
-              '<td class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</td>" +
-              "</tr>";
+          document.getElementById("bt-group-list").innerHTML = list.map(function (it) {
+            return '<div class="stock-item bt-hit-row" data-dm="' + String(it.dm || "") + '">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main"><a>' +
+              (it.dm || "-") + (it.mc ? " " + it.mc : "") +
+              "</a></div>" +
+              '<span class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</span>" +
+              "</div>" +
+              '<div class="stock-meta muted">日期 ' + (it.buy_date || "-") +
+              "　起始 " + fmt(it.start_price) +
+              "　目标 " + fmt(it.end_price) + "</div>" +
+              "</div>";
           }).join("");
         })
         .catch(function () {
           document.getElementById("bt-group-meta").textContent = "命中详情接口请求失败";
-          document.getElementById("bt-group-body").innerHTML =
-            '<tr><td colspan="6" class="empty">加载失败</td></tr>';
+          document.getElementById("bt-group-list").innerHTML =
+            '<div class="muted">加载失败</div>';
         });
     }
     function loadBtStock(dm, combo) {
@@ -667,8 +600,8 @@
       selectedBtCombo = combo || selectedBtCombo;
       showStockKline(selectedBtDm);
       document.getElementById("bt-stock-meta").textContent = "加载中…";
-      document.getElementById("bt-stock-body").innerHTML =
-        '<tr><td colspan="4" class="empty">加载中…</td></tr>';
+      document.getElementById("bt-stock-list").innerHTML =
+        '<div class="muted">加载中…</div>';
       fetch("/api/bt/stock?dm=" + encodeURIComponent(selectedBtDm) +
         "&combo=" + encodeURIComponent(selectedBtCombo) +
         "&day_level=" + encodeURIComponent(p.day_level))
@@ -680,31 +613,42 @@
             "　组合 " + comboCn(data.combo || selectedBtCombo) +
             "　最近 60 自然日　共 " + list.length + " 条";
           if (!list.length) {
-            document.getElementById("bt-stock-body").innerHTML =
-              '<tr><td colspan="4" class="empty">该股票最近 60 自然日无命中</td></tr>';
+            document.getElementById("bt-stock-list").innerHTML =
+              '<div class="muted">该股票最近 60 自然日无命中</div>';
             return;
           }
-          document.getElementById("bt-stock-body").innerHTML = list.map(function (it) {
-            return "<tr>" +
-              "<td>" + (it.buy_date || "-") + "</td>" +
-              "<td>" + fmt(it.start_price) + "</td>" +
-              "<td>" + fmt(it.end_price) + "</td>" +
-              '<td class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</td>" +
-              "</tr>";
+          document.getElementById("bt-stock-list").innerHTML = list.map(function (it) {
+            return '<div class="stock-item">' +
+              '<div class="stock-title">' +
+              "<span>" + (it.buy_date || "-") + "</span>" +
+              '<span class="' + retClass(it.profit) + '">' + fmtRet(it.profit) + "</span>" +
+              "</div>" +
+              '<div class="stock-meta muted">起始 ' + fmt(it.start_price) +
+              "　目标 " + fmt(it.end_price) + "</div>" +
+              "</div>";
           }).join("");
         })
         .catch(function () {
           document.getElementById("bt-stock-meta").textContent = "单股详情接口请求失败";
-          document.getElementById("bt-stock-body").innerHTML =
-            '<tr><td colspan="4" class="empty">加载失败</td></tr>';
+          document.getElementById("bt-stock-list").innerHTML =
+            '<div class="muted">加载失败</div>';
         });
     }
 
-    document.getElementById("tab-analyze").addEventListener("change", function (ev) {
-      var t = ev.target;
-      if (!t || !t.name) return;
-      if (t.name === "bt-level" || t.name === "bt-days") loadBtSummary();
-    });
+    function bindChipGroup(boxId) {
+      var box = document.getElementById(boxId);
+      if (!box) return;
+      box.addEventListener("click", function (ev) {
+        var t = ev.target;
+        if (!t || !t.classList || !t.classList.contains("chip")) return;
+        var chips = box.querySelectorAll(".chip");
+        Array.prototype.forEach.call(chips, function (c) { c.classList.remove("active"); });
+        t.classList.add("active");
+        loadBtSummary();
+      });
+    }
+    bindChipGroup("bt-level-filters");
+    bindChipGroup("bt-days-filters");
     var selectedSignalCombo = "";
     function loadSignal(combo) {
       selectedSignalCombo = combo || "";
@@ -712,11 +656,11 @@
       var box = document.getElementById("signal-list");
       if (!selectedSignalCombo) {
         meta.textContent = "从回溯分析点击组合名查看当日信号";
-        box.innerHTML = '<div class="empty">从回溯分析点击组合名查看当日信号</div>';
+        box.innerHTML = '<div class="muted">从回溯分析点击组合名查看当日信号</div>';
         return;
       }
       meta.textContent = "加载中…";
-      box.innerHTML = '<div class="empty">加载中…</div>';
+      box.innerHTML = '<div class="muted">加载中…</div>';
       fetch("/api/signal?combo=" + encodeURIComponent(selectedSignalCombo))
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -726,61 +670,64 @@
             "　交易日 " + (data.date || "-") +
             "　共 " + list.length + " 只";
           if (!list.length) {
-            box.innerHTML = '<div class="empty">该组合最新交易日无命中</div>';
+            box.innerHTML = '<div class="muted">该组合最新交易日无命中</div>';
             return;
           }
           box.innerHTML = list.map(function (it) {
             var url = sinaDailyImg(it.dm);
             var img = url
-              ? '<img class="signal-kline" alt="日K" src="' + url + '" onerror="this.style.display=\'none\'">'
+              ? '<img class="signal-kline chart-img" alt="日K" src="' + url + '" onerror="this.style.display=\'none\'">'
               : "";
-            return '<div class="signal-item">' +
-              '<div class="signal-fields">' +
-              "<span>代码 " + (it.dm || "-") + "</span>" +
-              "<span>名称 " + (it.mc || "-") + "</span>" +
-              "<span>现价 " + fmt(it.close) + "</span>" +
-              '<span class="' + retClass(it.pct_change) + '">涨幅 ' + fmtRet(it.pct_change) + "</span>" +
-              "<span>建议买入价 " + fmt(it.entry) + "</span>" +
-              "<span>止损价 " + fmt(it.stop) + "</span>" +
+            return '<div class="stock-item">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main"><a>' +
+              (it.dm || "-") + (it.mc ? " " + it.mc : "") +
+              "</a></div>" +
+              '<span class="' + retClass(it.pct_change) + '">' + fmtRet(it.pct_change) + "</span>" +
               "</div>" +
+              '<div class="stock-meta muted">现价 ' + fmt(it.close) +
+              "　建议买入 " + fmt(it.entry) +
+              "　止损 " + fmt(it.stop) + "</div>" +
               img +
               "</div>";
           }).join("");
         })
         .catch(function () {
           meta.textContent = "当日信号接口请求失败";
-          box.innerHTML = '<div class="empty">加载失败</div>';
+          box.innerHTML = '<div class="muted">加载失败</div>';
         });
     }
-    document.getElementById("bt-summary-body").addEventListener("click", function (ev) {
+    document.getElementById("bt-summary-list").addEventListener("click", function (ev) {
       var t = ev.target;
       if (t && t.classList && t.classList.contains("combo-link")) {
         ev.preventDefault();
         ev.stopPropagation();
         var linkRow = t;
-        while (linkRow && linkRow.tagName !== "TR") linkRow = linkRow.parentNode;
+        while (linkRow && !(linkRow.classList && linkRow.classList.contains("follow-item"))) {
+          linkRow = linkRow.parentNode;
+        }
         var combo = (linkRow && linkRow.getAttribute("data-combo")) || "";
         selectedSignalCombo = combo;
         switchTab("signal");
         loadSignal(combo);
         return;
       }
-      var tr = ev.target;
-      while (tr && tr.tagName !== "TR") tr = tr.parentNode;
-      if (!tr || !tr.classList.contains("combo-row")) return;
-      var rows = document.querySelectorAll("#bt-summary-body .combo-row");
+      var row = ev.target;
+      while (row && !(row.classList && row.classList.contains("combo-row"))) row = row.parentNode;
+      if (!row) return;
+      var rows = document.querySelectorAll("#bt-summary-list .combo-row");
       Array.prototype.forEach.call(rows, function (el) { el.classList.remove("selected"); });
-      tr.classList.add("selected");
-      loadBtGroup(tr.getAttribute("data-combo") || "");
+      row.classList.add("selected");
+      loadBtGroup(row.getAttribute("data-combo") || "");
     });
-    document.getElementById("bt-group-body").addEventListener("click", function (ev) {
-      var tr = ev.target;
-      while (tr && tr.tagName !== "TR") tr = tr.parentNode;
-      if (!tr || !tr.classList.contains("bt-hit-row")) return;
-      var rows = document.querySelectorAll("#bt-group-body .bt-hit-row");
+    document.getElementById("bt-group-list").addEventListener("click", function (ev) {
+      var row = ev.target;
+      while (row && !(row.classList && row.classList.contains("bt-hit-row"))) row = row.parentNode;
+      if (!row) return;
+      var rows = document.querySelectorAll("#bt-group-list .bt-hit-row");
       Array.prototype.forEach.call(rows, function (el) { el.classList.remove("selected"); });
-      tr.classList.add("selected");
-      loadBtStock(tr.getAttribute("data-dm") || "", selectedBtCombo);
+      row.classList.add("selected");
+      loadBtStock(row.getAttribute("data-dm") || "", selectedBtCombo);
     });
     loadBtSummary();
   </script>

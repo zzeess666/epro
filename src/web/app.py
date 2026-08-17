@@ -809,6 +809,11 @@ def echarts_js() -> FileResponse:
     return FileResponse(PUBLIC_DIR / "echarts.min.js", media_type="application/javascript")
 
 
+@app.get("/assets/css/app.css")
+def app_css():
+    return FileResponse(PUBLIC_DIR / "assets" / "css" / "app.css", media_type="text/css")
+
+
 def _date_str(value: date | None) -> str | None:
     return value.isoformat() if value else None
 
