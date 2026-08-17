@@ -44,6 +44,12 @@
     .combo-row, .bt-hit-row { cursor: pointer; }
     .combo-row:hover, .bt-hit-row:hover { background: #f5f5f5; }
     .combo-row.selected, .bt-hit-row.selected { background: #e6f4ff; }
+    .combo-link { color: #1677ff; text-decoration: underline; cursor: pointer; }
+    .combo-link:hover { color: #0958d9; }
+    .signal-item { background: #fff; border: 1px solid #ddd; padding: 12px; margin: 0 0 12px; max-width: 900px; }
+    .signal-fields { font-size: 14px; line-height: 1.8; }
+    .signal-fields span { margin-right: 16px; display: inline-block; }
+    .signal-kline { max-width: 545px; width: 100%; display: block; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -83,6 +89,14 @@
         <tr><td colspan="5" class="empty">加载中…</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div id="tab-signal" class="tab-pane" style="display:none">
+    <h2>当日信号</h2>
+    <div class="meta" id="signal-meta">从回溯分析点击组合名查看当日信号</div>
+    <div id="signal-list">
+      <div class="empty">从回溯分析点击组合名查看当日信号</div>
+    </div>
   </div>
 
   <div id="tab-history" class="tab-pane" style="display:none">
@@ -192,6 +206,7 @@
 
   <div class="tab-bar" id="tab-bar">
     <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
+    <button type="button" class="tab-btn" data-tab="signal">当日信号</button>
     <button type="button" class="tab-btn" data-tab="history">历史回放</button>
     <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
   </div>
@@ -318,7 +333,7 @@
 
     function switchTab(name) {
       if (!name) return;
-      var panes = ["recommend", "history", "analyze"];
+      var panes = ["recommend", "signal", "history", "analyze"];
       for (var i = 0; i < panes.length; i++) {
         var pane = document.getElementById("tab-" + panes[i]);
         if (pane) pane.style.display = panes[i] === name ? "block" : "none";
@@ -592,7 +607,7 @@
           }
           document.getElementById("bt-summary-body").innerHTML = list.map(function (it) {
             return '<tr class="combo-row" data-combo="' + String(it.combo || "") + '">' +
-              "<td>" + comboCn(it.combo) + "</td>" +
+              '<td><a href="javascript:void(0)" class="combo-link">' + comboCn(it.combo) + "</a></td>" +
               "<td>" + (it.sample_count == null ? "-" : it.sample_count) + "</td>" +
               "<td>" + fmtPct(it.win_rate) + "</td>" +
               "<td>" + fmtPct(it.max_profit) + "</td>" +
@@ -688,7 +703,66 @@
       if (!t || !t.name) return;
       if (t.name === "bt-level" || t.name === "bt-days") loadBtSummary();
     });
+    var selectedSignalCombo = "";
+    function loadSignal(combo) {
+      selectedSignalCombo = combo || "";
+      var meta = document.getElementById("signal-meta");
+      var box = document.getElementById("signal-list");
+      if (!selectedSignalCombo) {
+        meta.textContent = "从回溯分析点击组合名查看当日信号";
+        box.innerHTML = '<div class="empty">从回溯分析点击组合名查看当日信号</div>';
+        return;
+      }
+      meta.textContent = "加载中…";
+      box.innerHTML = '<div class="empty">加载中…</div>';
+      fetch("/api/signal?combo=" + encodeURIComponent(selectedSignalCombo))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var list = (data && data.list) || [];
+          meta.textContent =
+            "组合 " + comboCn(data.combo || selectedSignalCombo) +
+            "　交易日 " + (data.date || "-") +
+            "　共 " + list.length + " 只";
+          if (!list.length) {
+            box.innerHTML = '<div class="empty">该组合最新交易日无命中</div>';
+            return;
+          }
+          box.innerHTML = list.map(function (it) {
+            var url = sinaDailyImg(it.dm);
+            var img = url
+              ? '<img class="signal-kline" alt="日K" src="' + url + '" onerror="this.style.display=\'none\'">'
+              : "";
+            return '<div class="signal-item">' +
+              '<div class="signal-fields">' +
+              "<span>代码 " + (it.dm || "-") + "</span>" +
+              "<span>名称 " + (it.mc || "-") + "</span>" +
+              "<span>现价 " + fmt(it.close) + "</span>" +
+              '<span class="' + retClass(it.pct_change) + '">涨幅 ' + fmtRet(it.pct_change) + "</span>" +
+              "<span>建议买入价 " + fmt(it.entry) + "</span>" +
+              "<span>止损价 " + fmt(it.stop) + "</span>" +
+              "</div>" +
+              img +
+              "</div>";
+          }).join("");
+        })
+        .catch(function () {
+          meta.textContent = "当日信号接口请求失败";
+          box.innerHTML = '<div class="empty">加载失败</div>';
+        });
+    }
     document.getElementById("bt-summary-body").addEventListener("click", function (ev) {
+      var t = ev.target;
+      if (t && t.classList && t.classList.contains("combo-link")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var linkRow = t;
+        while (linkRow && linkRow.tagName !== "TR") linkRow = linkRow.parentNode;
+        var combo = (linkRow && linkRow.getAttribute("data-combo")) || "";
+        selectedSignalCombo = combo;
+        switchTab("signal");
+        loadSignal(combo);
+        return;
+      }
       var tr = ev.target;
       while (tr && tr.tagName !== "TR") tr = tr.parentNode;
       if (!tr || !tr.classList.contains("combo-row")) return;

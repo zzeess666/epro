@@ -1,4 +1,4 @@
-"""FastAPI：推荐列表 / 跟踪状态 / 历史回放 / 组合排行 / 手动回溯 / e8式回溯 / 首页。"""
+"""FastAPI：推荐列表 / 跟踪状态 / 当日信号 / 历史回放 / 组合排行 / 手动回溯 / e8式回溯 / 首页。"""
 
 from __future__ import annotations
 
@@ -683,6 +683,113 @@ def api_bt_stock(dm: str = "", combo: str = "", day_level: int = 1) -> JSONRespo
     finally:
         conn.close()
     return JSONResponse({"dm": dm_code, "combo": combo_name, "list": records})
+
+
+def _parse_signal_factors(raw: str) -> tuple[str, ...] | None:
+    """combo 用 + 拆因子；空或含未知因子返回 None。"""
+    parts: list[str] = []
+    seen: set[str] = set()
+    for item in str(raw or "").split("+"):
+        name = item.strip()
+        if not name or name in seen:
+            continue
+        if name not in _FACTOR_SET:
+            return None
+        seen.add(name)
+        parts.append(name)
+    if not parts:
+        return None
+    return tuple(parts)
+
+
+@app.get("/api/signal")
+def api_signal(combo: str = "") -> JSONResponse:
+    """某组合在最新交易日同时命中全部因子的股票（库内 factor_flag / daily_kline）。"""
+    combo_raw = str(combo or "").strip()
+    if not combo_raw:
+        return JSONResponse({"error": "combo 不能为空"}, status_code=400)
+    factors = _parse_signal_factors(combo_raw)
+    if factors is None:
+        return JSONResponse({"error": "combo 含未知因子"}, status_code=400)
+    key = combo_key(factors)
+    items: list[dict[str, Any]] = []
+    latest: date | None = None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT MAX(t) AS t FROM daily_kline")
+            latest = to_date((cursor.fetchone() or {}).get("t"))
+            if latest is None:
+                return JSONResponse({"combo": key, "date": None, "list": []})
+            cursor.execute("SELECT MAX(t) AS t FROM daily_kline WHERE t < %s", (latest,))
+            prev = to_date((cursor.fetchone() or {}).get("t"))
+            placeholders = ",".join(["%s"] * len(factors))
+            cursor.execute(
+                f"""
+                SELECT dm
+                FROM factor_flag
+                WHERE t = %s AND flag = 1 AND factor IN ({placeholders})
+                GROUP BY dm
+                HAVING COUNT(DISTINCT factor) = %s
+                """,
+                (latest, *factors, len(factors)),
+            )
+            dms = [str(row.get("dm") or "").strip() for row in cursor.fetchall()]
+            dms = [dm for dm in dms if dm]
+            if dms:
+                dm_ph = ",".join(["%s"] * len(dms))
+                cursor.execute(
+                    f"SELECT dm, mc FROM stock_basic WHERE dm IN ({dm_ph})",
+                    tuple(dms),
+                )
+                name_map = {
+                    str(row.get("dm") or "").strip(): str(row.get("mc") or "")
+                    for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    f"SELECT dm, c FROM daily_kline WHERE t = %s AND dm IN ({dm_ph})",
+                    (latest, *dms),
+                )
+                close_map = {
+                    str(row.get("dm") or "").strip(): to_float(row.get("c"))
+                    for row in cursor.fetchall()
+                }
+                prev_map: dict[str, float | None] = {}
+                if prev is not None:
+                    cursor.execute(
+                        f"SELECT dm, c FROM daily_kline WHERE t = %s AND dm IN ({dm_ph})",
+                        (prev, *dms),
+                    )
+                    prev_map = {
+                        str(row.get("dm") or "").strip(): to_float(row.get("c"))
+                        for row in cursor.fetchall()
+                    }
+                for dm in dms:
+                    close = close_map.get(dm)
+                    close_n = _round2(close) if close is not None else None
+                    prev_c = prev_map.get(dm)
+                    pct = None
+                    if close is not None and prev_c is not None and prev_c != 0:
+                        pct = _round2((close - prev_c) / prev_c * 100.0)
+                    stop = _round2(close * 0.92) if close is not None else None
+                    items.append(
+                        {
+                            "dm": dm,
+                            "mc": name_map.get(dm, ""),
+                            "close": close_n,
+                            "pct_change": pct,
+                            "entry": close_n,
+                            "stop": stop,
+                        }
+                    )
+    finally:
+        conn.close()
+    items.sort(
+        key=lambda r: (r["pct_change"] is None, -(r["pct_change"] or 0.0), r["dm"])
+    )
+    return JSONResponse(
+        {"combo": key, "date": latest.isoformat() if latest else None, "list": items}
+    )
 
 
 @app.get("/")
