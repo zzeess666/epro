@@ -46,7 +46,7 @@ def sina_to_dm(sina_code: str) -> str:
 
 
 def fetch_sina_batch(codes: list[str]) -> dict[str, dict]:
-    """批量获取新浪实时数据，返回 {sina_code: {o,c,h,l,v,a,date}}"""
+    """批量获取新浪实时数据，返回 {sina_code: {o,c,h,l,v,a,date,pc}}"""
     if not codes:
         return {}
     url = f"https://hq.sinajs.cn/list={','.join(codes)}"
@@ -85,6 +85,7 @@ def fetch_sina_batch(codes: list[str]) -> dict[str, dict]:
                 "v": int(float(fields[8])),
                 "a": float(fields[9]),
                 "date": trade_date,
+                "pc": float(fields[2]),  # 昨收价
             }
         except (ValueError, IndexError):
             continue
@@ -122,7 +123,7 @@ def write_to_csv(rows: list[tuple]) -> None:
     with open(CSV_PATH, mode, newline="") as f:
         writer = csv.writer(f, delimiter="\t")
         if mode == "w":
-            writer.writerow(["dm", "t", "o", "c", "h", "l", "v", "a"])
+            writer.writerow(["dm", "t", "o", "c", "h", "l", "v", "a", "pc"])
         writer.writerows(rows)
 
 
@@ -145,6 +146,7 @@ def load_csv_to_db() -> int:
                     float(row["l"]),
                     int(float(row["v"])),
                     float(row["a"]),
+                    float(row["pc"]) if row.get("pc") else None,
                 )
             )
 
@@ -165,7 +167,7 @@ def load_csv_to_db() -> int:
         batch = rows[i : i + BATCH]
         cur2 = conn.cursor()
         cur2.executemany(
-            "INSERT IGNORE INTO daily_kline (dm,t,o,c,h,l,v,a) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            "INSERT IGNORE INTO daily_kline (dm,t,o,c,h,l,v,a,pc) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             batch,
         )
         conn.commit()
@@ -225,13 +227,13 @@ def sync_daily() -> dict:
             sina_code = dm_to_sina(dm, jys)
             if sina_code in sina_data:
                 d = sina_data[sina_code]
-                batch_rows.append((dm, d["date"], d["o"], d["c"], d["h"], d["l"], d["v"], d["a"]))
+                batch_rows.append((dm, d["date"], d["o"], d["c"], d["h"], d["l"], d["v"], d["a"], d.get("pc")))
                 sina_ok += 1
             else:
                 # 麦蕊备用
                 d = fetch_mairui_fallback(dm, jys)
                 if d:
-                    batch_rows.append((dm, d["date"], d["o"], d["c"], d["h"], d["l"], d["v"], d["a"]))
+                    batch_rows.append((dm, d["date"], d["o"], d["c"], d["h"], d["l"], d["v"], d["a"], None))
                     mairui_ok += 1
                 else:
                     failed += 1
