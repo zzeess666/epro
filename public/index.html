@@ -183,6 +183,43 @@
       </div>
     </div>
 
+    <div id="tab-realtime" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div class="card-head">
+            <span>14:30 实时二次突破扫描</span>
+            <span class="meta" id="rt-scan-info"></span>
+          </div>
+          <div class="meta" style="margin-bottom:8px">
+            扫描逻辑：当前价 &gt; 过去4天最高点（缓冲0.5%），
+            且过去4天内有过"前次突破"（收盘价突破前期高点），
+            同时当前价 ≥ 前次突破日收盘价
+          </div>
+          <div class="filter-row">
+            <label>显示<input type="number" id="rt-limit" value="50" min="5" max="500" step="5"></label>
+            <button type="button" id="rt-refresh-btn" class="btn">刷新</button>
+          </div>
+          <div id="rt-count" class="meta"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">候选股票（按涨跌幅排序）</div>
+          <div class="table-wrap" style="max-height:600px;overflow-y:auto">
+            <table class="data-table" id="rt-table">
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th><th>当前价</th><th>涨跌幅</th>
+                  <th>前4天高</th><th>前次突破日</th><th>前次突破价</th>
+                  <th>止损价</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tabbar" id="tab-bar">
       <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
       <button type="button" class="tab-btn" data-tab="signal">当日信号</button>
@@ -190,6 +227,7 @@
       <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
       <button type="button" class="tab-btn" data-tab="watchlist">尾盘观察</button>
       <button type="button" class="tab-btn" data-tab="financial">财务选股</button>
+      <button type="button" class="tab-btn" data-tab="realtime">14:30实时</button>
     </div>
   </div>
 
@@ -448,6 +486,50 @@
     });
     loadFinancialTop();
     loadSectorRank();
+
+    // ============ 14:30 实时扫描 (M22) ============
+    function loadRealtimeScan() {
+      var limit = parseInt(document.getElementById('rt-limit').value) || 50;
+      document.getElementById('rt-scan-info').textContent = '加载中…';
+      fetch('/api/scan/realtime?limit=' + limit, { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.scan_time) {
+            document.getElementById('rt-scan-info').textContent = '暂无数据';
+            document.getElementById('rt-count').innerHTML = '';
+            document.querySelector('#rt-table tbody').innerHTML =
+              '<tr><td colspan="7" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py）</td></tr>';
+            return;
+          }
+          document.getElementById('rt-scan-info').textContent =
+            '扫描时间: ' + d.scan_time + ' | 共 ' + d.count + ' 只候选';
+          document.getElementById('rt-count').innerHTML = '';
+
+          var html = '';
+          (d.items || []).forEach(function (r) {
+            var pct = r.pct_change || 0;
+            var pctClass = pct > 0 ? 'up' : 'down';
+            var pctStr = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
+            html += '<tr>' +
+              '<td>' + r.dm + '</td>' +
+              '<td>' + r.mc + '</td>' +
+              '<td>' + r.current_price.toFixed(2) + '</td>' +
+              '<td class="' + pctClass + '">' + pctStr + '</td>' +
+              '<td>' + r.prev_high_4d.toFixed(2) + '</td>' +
+              '<td>' + r.prev_breakout_date + '</td>' +
+              '<td>' + r.prev_breakout_close.toFixed(2) + '</td>' +
+              '<td>' + r.stop_loss.toFixed(2) + '</td>' +
+              '</tr>';
+          });
+          document.querySelector('#rt-table tbody').innerHTML = html ||
+            '<tr><td colspan="7" style="text-align:center;color:#999">无候选</td></tr>';
+        })
+        .catch(function (e) {
+          document.getElementById('rt-scan-info').textContent = '加载失败: ' + e;
+        });
+    }
+    document.getElementById('rt-refresh-btn').addEventListener('click', loadRealtimeScan);
+    loadRealtimeScan();
 
     function retClass(v) {
       if (typeof v !== "number") return "";
