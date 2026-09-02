@@ -12,6 +12,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Optional
 
+import pymysql
+import pymysql.cursors
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -41,6 +44,8 @@ from src.factor.factor_library import FACTOR_NAMES, combo_key, load_klines
 from src.screen.dynamic_screener import load_best_combo
 from src.strategy.base_strategy import to_date, to_float
 from src.track.track_service import list_watches, load_latest_recommend, now_cn
+from src.web.routes.watchlist import router as _watchlist_router
+from src.web.routes import watchlist  # noqa: F401
 
 PUBLIC_DIR = ROOT / "public"
 INDEX_HTML = PUBLIC_DIR / "index.html"
@@ -89,6 +94,7 @@ CREATE TABLE IF NOT EXISTS bt_satisfy (
 """
 
 app = FastAPI(title="EPro", docs_url=None, redoc_url=None)
+app.include_router(_watchlist_router)
 
 
 class _BasicAuthMiddleware(BaseHTTPMiddleware):
@@ -816,6 +822,145 @@ def app_css():
 
 def _date_str(value: date | None) -> str | None:
     return value.isoformat() if value else None
+
+
+# ============ 财务过滤选股 API (M18) ============
+
+@app.get("/api/financial/top")
+def api_financial_top(min_roe: float = 15, min_gm: float = 30,
+                      max_debt: float = 60, top_n: int = 10):
+    """财务过滤选股 TopN"""
+    conn = pymysql.connect(
+        host='127.0.0.1', port=3306, user='epro',
+        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(report_date) AS d FROM financial_quarterly")
+    max_date = cur.fetchone()['d']
+
+    cur.execute("""
+        SELECT fq.dm, st.mc,
+               fq.roe_ttm, fq.gross_margin, fq.debt_ratio,
+               fq.rev_yoy, fq.profit_yoy, fq.eps
+        FROM financial_quarterly fq
+        JOIN stock_basic st ON fq.dm = st.dm
+        WHERE fq.report_date = %s
+          AND fq.roe_ttm >= %s
+          AND fq.gross_margin >= %s
+          AND fq.debt_ratio <= %s
+          AND fq.profit_yoy > 0
+          AND fq.rev_yoy > 0
+    """, (max_date, min_roe, min_gm, max_debt))
+
+    rows = cur.fetchall()
+
+    # 评分
+    def score(r):
+        s = 0
+        roe = r.get('roe_ttm') or 0
+        s += min(roe / 20 * 40, 40)
+        gm = r.get('gross_margin') or 0
+        s += min(gm / 50 * 20, 20)
+        rev = r.get('rev_yoy') or 0
+        s += min(max(rev, 0) / 30 * 15, 15)
+        prof = r.get('profit_yoy') or 0
+        s += min(max(prof, 0) / 50 * 15, 15)
+        debt = r.get('debt_ratio') or 0
+        s += max(0, (100 - debt) / 100 * 10)
+        return round(s, 2)
+
+    for r in rows:
+        r['score'] = score(r)
+
+    rows.sort(key=lambda x: x['score'], reverse=True)
+    top = rows[:top_n]
+
+    # 行业分布
+    dm_list = [r['dm'] for r in top]
+    industry = []
+    if dm_list:
+        placeholders = ','.join(['%s'] * len(dm_list))
+        cur.execute(f"""
+            SELECT sb.code, sb.name, COUNT(DISTINCT ss.dm) AS cnt
+            FROM sector_basic sb
+            JOIN stock_sector ss ON ss.sector_code = sb.code
+            WHERE sb.level = 'sw_yx' AND sb.code NOT REGEXP '^sw2_'
+              AND ss.dm IN ({placeholders})
+            GROUP BY sb.code, sb.name
+            ORDER BY cnt DESC
+        """, dm_list)
+        industry = [{'code': r['code'], 'name': r['name'], 'count': r['cnt']} for r in cur.fetchall()]
+
+    conn.close()
+
+    return JSONResponse({
+        "date": max_date.isoformat() if max_date else None,
+        "total_candidates": len(rows),
+        "filters": {"min_roe": min_roe, "min_gm": min_gm, "max_debt": max_debt},
+        "top": [{
+            "dm": r['dm'],
+            "mc": r['mc'],
+            "roe_ttm": round(r['roe_ttm'] or 0, 2),
+            "gross_margin": round(r['gross_margin'] or 0, 2),
+            "debt_ratio": round(r['debt_ratio'] or 0, 2),
+            "rev_yoy": round(r['rev_yoy'] or 0, 2),
+            "profit_yoy": round(r['profit_yoy'] or 0, 2),
+            "score": r['score']
+        } for r in top],
+        "industry_distribution": industry
+    })
+
+
+@app.get("/api/sector/rank")
+def api_sector_rank():
+    """申万一级行业排名（按 ROE 均值）"""
+    conn = pymysql.connect(
+        host='127.0.0.1', port=3306, user='epro',
+        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    cur = conn.cursor()
+    cur.execute("SELECT MAX(report_date) AS d FROM financial_quarterly")
+    max_date = cur.fetchone()['d']
+
+    cur.execute("""
+        SELECT sb.code, sb.name,
+               COUNT(DISTINCT ss.dm) AS stock_count,
+               AVG(fq.roe_ttm) AS avg_roe,
+               AVG(fq.gross_margin) AS avg_gross_margin,
+               AVG(fq.rev_yoy) AS avg_rev_yoy,
+               AVG(fq.profit_yoy) AS avg_profit_yoy,
+               SUM(CASE WHEN fq.roe_ttm > 10 THEN 1 ELSE 0 END) AS high_roe_count
+        FROM sector_basic sb
+        JOIN stock_sector ss ON ss.sector_code = sb.code
+        LEFT JOIN financial_quarterly fq ON ss.dm = fq.dm
+            AND fq.report_date = %s
+        WHERE sb.level = 'sw_yx' AND sb.code NOT REGEXP '^sw2_'
+        GROUP BY sb.code, sb.name
+        HAVING stock_count >= 10
+        ORDER BY avg_roe DESC
+    """, (max_date,))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    def fnum(v):
+        return round(float(v), 2) if v is not None else 0
+
+    return JSONResponse({
+        "date": max_date.isoformat() if max_date else None,
+        "sectors": [{
+            "code": r['code'],
+            "name": r['name'],
+            "stock_count": int(r['stock_count']),
+            "avg_roe": fnum(r['avg_roe']),
+            "avg_gross_margin": fnum(r['avg_gross_margin']),
+            "avg_rev_yoy": fnum(r['avg_rev_yoy']),
+            "avg_profit_yoy": fnum(r['avg_profit_yoy']),
+            "high_roe_count": int(r['high_roe_count'] or 0)
+        } for r in rows]
+    })
 
 
 def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
