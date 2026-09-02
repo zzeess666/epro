@@ -963,6 +963,142 @@ def api_sector_rank():
     })
 
 
+# ============ 财务+技术叠加精选 API (M20) ============
+
+FACTOR_CN_MAP = {
+    'box_breakout': '箱体突破', 'second_breakout': '二次突破',
+    'macd_golden': 'MACD金叉', 'expma_golden': 'EXPMA金叉',
+    'gap_up': '跳空高开', 'one_yang_3ma': '一阳穿三线',
+    'ma_bull': '多头排列', 'ma5_cross_10': '5穿10日',
+    'shrink_pullback': '缩量回踩', 'new_high_20': '20日新高',
+    'limit_up': '涨停', 'volume_ratio_high': '放量',
+    'kline_reversal': 'K线反转', 'above_ma20': '站上20日线'
+}
+
+
+@app.get("/api/combo/financial")
+def api_combo_financial(min_roe: float = 15, min_gm: float = 30,
+                         max_debt: float = 60, min_factors: int = 2,
+                         top_n: int = 10):
+    """财务+技术叠加精选"""
+    conn = pymysql.connect(
+        host='127.0.0.1', port=3306, user='epro',
+        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+    cur = conn.cursor()
+
+    # 大盘状态
+    cur.execute("""
+        SELECT code, c, ma20,
+               CASE WHEN c > ma20 THEN 1 ELSE 0 END AS bull
+        FROM index_kline
+        WHERE t = (SELECT MAX(t) FROM index_kline)
+          AND code IN ('000001.SH','399001.SZ','000688.SH','399006.SZ')
+    """)
+    indexes = {r['code']: r for r in cur.fetchall()}
+    bull_count = sum(r['bull'] for r in indexes.values())
+
+    # 财务候选
+    cur.execute("SELECT MAX(report_date) AS d FROM financial_quarterly")
+    fin_date = cur.fetchone()['d']
+    cur.execute("""
+        SELECT fq.dm, st.mc,
+               fq.roe_ttm, fq.gross_margin, fq.debt_ratio,
+               fq.rev_yoy, fq.profit_yoy, fq.eps
+        FROM financial_quarterly fq
+        JOIN stock_basic st ON fq.dm = st.dm
+        WHERE fq.report_date = %s
+          AND fq.roe_ttm >= %s
+          AND fq.gross_margin >= %s
+          AND fq.debt_ratio <= %s
+          AND fq.profit_yoy > 0
+          AND fq.rev_yoy > 0
+    """, (fin_date, min_roe, min_gm, max_debt))
+    candidates = cur.fetchall()
+
+    # 因子命中
+    cur.execute("SELECT MAX(t) AS d FROM factor_flag")
+    factor_date = cur.fetchone()['d']
+    factors_list = list(FACTOR_CN_MAP.keys())
+    placeholders = ','.join(['%s'] * len(factors_list))
+    cur.execute(f"""
+        SELECT dm, factor FROM factor_flag
+        WHERE t = %s AND flag = 1 AND factor IN ({placeholders})
+    """, [factor_date] + factors_list)
+    factor_rows = cur.fetchall()
+
+    factor_count = {}
+    factor_list_per_dm = {}
+    for row in factor_rows:
+        # DictCursor 返回字典，普通 Cursor 返回元组
+        if isinstance(row, dict):
+            dm = row['dm']
+            f = row['factor']
+        else:
+            dm, f = row[0], row[1]
+        factor_count[dm] = factor_count.get(dm, 0) + 1
+        factor_list_per_dm.setdefault(dm, []).append(f)
+
+    # 叠加评分
+    scored = []
+    for s in candidates:
+        fc = factor_count.get(s['dm'], 0)
+        if fc < min_factors:
+            continue
+        # 财务分
+        fscore = 0
+        fscore += min((s.get('roe_ttm') or 0) / 20 * 40, 40)
+        fscore += min((s.get('gross_margin') or 0) / 50 * 20, 20)
+        fscore += min(max((s.get('rev_yoy') or 0), 0) / 30 * 15, 15)
+        fscore += min(max((s.get('profit_yoy') or 0), 0) / 50 * 15, 15)
+        fscore += max(0, (100 - (s.get('debt_ratio') or 0)) / 100 * 10)
+        # 技术分
+        tscore = min(fc * 10, 50)
+        combined = round(fscore * 0.6 + tscore * 0.8, 2)
+        scored.append({
+            'dm': s['dm'], 'mc': s['mc'],
+            'roe_ttm': round(s.get('roe_ttm') or 0, 2),
+            'gross_margin': round(s.get('gross_margin') or 0, 2),
+            'debt_ratio': round(s.get('debt_ratio') or 0, 2),
+            'rev_yoy': round(s.get('rev_yoy') or 0, 2),
+            'profit_yoy': round(s.get('profit_yoy') or 0, 2),
+            'fin_score': round(fscore, 2),
+            'tech_score': round(tscore, 2),
+            'factor_count': fc,
+            'factors': factor_list_per_dm.get(s['dm'], []),
+            'combined_score': combined
+        })
+
+    scored.sort(key=lambda x: x['combined_score'], reverse=True)
+    top = scored[:top_n]
+    conn.close()
+
+    return JSONResponse({
+        "date": fin_date.isoformat() if fin_date else None,
+        "factor_date": factor_date.isoformat() if factor_date else None,
+        "market_status": {
+            "bull_count": bull_count,
+            "is_bullish": bull_count >= 2,
+            "indexes": {code: {
+                "close": float(r['c']),
+                "ma20": float(r['ma20']),
+                "bull": bool(r['bull'])
+            } for code, r in indexes.items()}
+        },
+        "filters": {
+            "min_roe": min_roe, "min_gm": min_gm,
+            "max_debt": max_debt, "min_factors": min_factors
+        },
+        "total_fin_candidates": len(candidates),
+        "total_after_factor": len(scored),
+        "top": [{
+            **r,
+            'factors_cn': [FACTOR_CN_MAP.get(f, f) for f in r['factors']]
+        } for r in top]
+    })
+
+
 def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in row.items():

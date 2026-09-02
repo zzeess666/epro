@@ -121,23 +121,40 @@
       <div class="panel">
         <div class="card">
           <div class="card-head">
-            <span>财务过滤条件</span>
+            <span>财务+技术叠加精选</span>
             <span class="meta" id="fin-date-status"></span>
           </div>
           <div class="filter-row">
             <label>ROE≥<input type="number" id="fin-min-roe" value="15" min="0" max="50" step="1">%</label>
             <label>毛利率≥<input type="number" id="fin-min-gm" value="30" min="0" max="100" step="1">%</label>
             <label>负债率≤<input type="number" id="fin-max-debt" value="60" min="0" max="100" step="1">%</label>
+            <label>因子≥<input type="number" id="fin-min-factors" value="2" min="1" max="10" step="1">个</label>
             <label>Top<input type="number" id="fin-top-n" value="10" min="3" max="50" step="1"></label>
             <button type="button" id="fin-run-btn" class="btn">筛选</button>
           </div>
           <div id="fin-candidates-info" class="meta"></div>
+          <div id="fin-market-status" class="meta"></div>
         </div>
 
         <div class="card">
-          <div class="card-head">财务 Top 选股</div>
+          <div class="card-head">精选 Top（财务+技术综合）</div>
           <div class="table-wrap" style="max-height:480px;overflow-y:auto">
             <table class="data-table" id="fin-top-table">
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th><th>财务分</th><th>技术分</th>
+                  <th>综合</th><th>因子数</th><th>命中因子</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">纯财务 Top 选股（无技术过滤）</div>
+          <div class="table-wrap" style="max-height:360px;overflow-y:auto">
+            <table class="data-table" id="fin-pure-top-table">
               <thead>
                 <tr>
                   <th>代码</th><th>名称</th><th>ROE%</th><th>毛利率%</th>
@@ -329,25 +346,61 @@
       switchTab(btn.getAttribute("data-tab"));
     });
 
-    // ============ 财务选股 (M19) ============
+    // ============ 财务选股 (M19/M20) ============
     function loadFinancialTop() {
       var minRoe = parseFloat(document.getElementById('fin-min-roe').value) || 15;
       var minGm = parseFloat(document.getElementById('fin-min-gm').value) || 30;
       var maxDebt = parseFloat(document.getElementById('fin-max-debt').value) || 60;
+      var minFactors = parseInt(document.getElementById('fin-min-factors').value) || 2;
       var topN = parseInt(document.getElementById('fin-top-n').value) || 10;
       document.getElementById('fin-date-status').textContent = '加载中…';
 
+      // 1. 财务+技术叠加
+      fetch('/api/combo/financial?min_roe=' + minRoe + '&min_gm=' + minGm +
+            '&max_debt=' + maxDebt + '&min_factors=' + minFactors + '&top_n=' + topN,
+            { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          document.getElementById('fin-date-status').textContent =
+            '财务日期: ' + (d.date || 'N/A') + ' | 因子日期: ' + (d.factor_date || 'N/A');
+
+          var ms = d.market_status;
+          var statusTxt = '大盘: ' + ms.bull_count + '/4 站上MA20';
+          if (ms.is_bullish) {
+            statusTxt = '✅ ' + statusTxt;
+          } else {
+            statusTxt = '⚠ ' + statusTxt + '（大盘偏弱）';
+          }
+          document.getElementById('fin-market-status').innerHTML = statusTxt;
+
+          document.getElementById('fin-candidates-info').innerHTML =
+            '财务候选 <b>' + d.total_fin_candidates + '</b> 只 → ' +
+            '因子叠加后 <b>' + d.total_after_factor + '</b> 只';
+
+          var html = '';
+          (d.top || []).forEach(function (r) {
+            html += '<tr>' +
+              '<td>' + r.dm + '</td>' +
+              '<td>' + r.mc + '</td>' +
+              '<td>' + r.fin_score.toFixed(1) + '</td>' +
+              '<td>' + r.tech_score.toFixed(1) + '</td>' +
+              '<td><b>' + r.combined_score.toFixed(1) + '</b></td>' +
+              '<td>' + r.factor_count + '</td>' +
+              '<td style="font-size:12px">' + r.factors_cn.join(' / ') + '</td>' +
+              '</tr>';
+          });
+          document.querySelector('#fin-top-table tbody').innerHTML = html ||
+            '<tr><td colspan="7" style="text-align:center;color:#999">无满足条件股票</td></tr>';
+        })
+        .catch(function (e) {
+          document.getElementById('fin-date-status').textContent = '加载失败: ' + e;
+        });
+
+      // 2. 纯财务 Top（原有接口）
       fetch('/api/financial/top?min_roe=' + minRoe + '&min_gm=' + minGm +
             '&max_debt=' + maxDebt + '&top_n=' + topN, { credentials: 'include' })
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          document.getElementById('fin-date-status').textContent =
-            '数据日期：' + (d.date || 'N/A');
-          document.getElementById('fin-candidates-info').innerHTML =
-            '过滤后候选：<b>' + d.total_candidates + '</b> 只 ' +
-            '(ROE≥' + d.filters.min_roe + '%, 毛利率≥' + d.filters.min_gm +
-            '%, 负债率≤' + d.filters.max_debt + '%)';
-
           var html = '';
           (d.top || []).forEach(function (r) {
             html += '<tr>' +
@@ -361,10 +414,7 @@
               '<td><b>' + r.score.toFixed(2) + '</b></td>' +
               '</tr>';
           });
-          document.querySelector('#fin-top-table tbody').innerHTML = html;
-        })
-        .catch(function (e) {
-          document.getElementById('fin-date-status').textContent = '加载失败：' + e;
+          document.querySelector('#fin-pure-top-table tbody').innerHTML = html;
         });
     }
 
