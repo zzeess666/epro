@@ -107,11 +107,72 @@
       </div>
     </div>
 
+    <div id="tab-watchlist" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div id="wl-market-bar" class="meta">加载中…</div>
+          <div id="wl-market-indexes"></div>
+        </div>
+        <div id="wl-combo-list"></div>
+      </div>
+    </div>
+
+    <div id="tab-financial" class="tab-pane">
+      <div class="panel">
+        <div class="card">
+          <div class="card-head">
+            <span>财务过滤条件</span>
+            <span class="meta" id="fin-date-status"></span>
+          </div>
+          <div class="filter-row">
+            <label>ROE≥<input type="number" id="fin-min-roe" value="15" min="0" max="50" step="1">%</label>
+            <label>毛利率≥<input type="number" id="fin-min-gm" value="30" min="0" max="100" step="1">%</label>
+            <label>负债率≤<input type="number" id="fin-max-debt" value="60" min="0" max="100" step="1">%</label>
+            <label>Top<input type="number" id="fin-top-n" value="10" min="3" max="50" step="1"></label>
+            <button type="button" id="fin-run-btn" class="btn">筛选</button>
+          </div>
+          <div id="fin-candidates-info" class="meta"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">财务 Top 选股</div>
+          <div class="table-wrap" style="max-height:480px;overflow-y:auto">
+            <table class="data-table" id="fin-top-table">
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th><th>ROE%</th><th>毛利率%</th>
+                  <th>负债率%</th><th>营收%</th><th>利润%</th><th>评分</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">申万一级行业排名（按 ROE 均值）</div>
+          <div class="table-wrap" style="max-height:360px;overflow-y:auto">
+            <table class="data-table" id="fin-sector-table">
+              <thead>
+                <tr>
+                  <th>行业</th><th>股票数</th><th>ROE%</th><th>毛利率%</th>
+                  <th>营收增%</th><th>利润增%</th><th>高ROE数</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tabbar" id="tab-bar">
       <button type="button" class="tab-btn active" data-tab="recommend">今日推荐</button>
       <button type="button" class="tab-btn" data-tab="signal">当日信号</button>
       <button type="button" class="tab-btn" data-tab="history">历史回放</button>
       <button type="button" class="tab-btn" data-tab="analyze">回溯分析</button>
+      <button type="button" class="tab-btn" data-tab="watchlist">尾盘观察</button>
+      <button type="button" class="tab-btn" data-tab="financial">财务选股</button>
     </div>
   </div>
 
@@ -243,7 +304,7 @@
 
     function switchTab(name) {
       if (!name) return;
-      var panes = ["recommend", "signal", "history", "analyze"];
+      var panes = ["recommend", "signal", "history", "analyze", "watchlist"];
       for (var i = 0; i < panes.length; i++) {
         var pane = document.getElementById("tab-" + panes[i]);
         if (pane) pane.style.display = panes[i] === name ? "block" : "none";
@@ -267,6 +328,76 @@
       if (btn.tagName !== "BUTTON" || !btn.classList.contains("tab-btn")) return;
       switchTab(btn.getAttribute("data-tab"));
     });
+
+    // ============ 财务选股 (M19) ============
+    function loadFinancialTop() {
+      var minRoe = parseFloat(document.getElementById('fin-min-roe').value) || 15;
+      var minGm = parseFloat(document.getElementById('fin-min-gm').value) || 30;
+      var maxDebt = parseFloat(document.getElementById('fin-max-debt').value) || 60;
+      var topN = parseInt(document.getElementById('fin-top-n').value) || 10;
+      document.getElementById('fin-date-status').textContent = '加载中…';
+
+      fetch('/api/financial/top?min_roe=' + minRoe + '&min_gm=' + minGm +
+            '&max_debt=' + maxDebt + '&top_n=' + topN, { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          document.getElementById('fin-date-status').textContent =
+            '数据日期：' + (d.date || 'N/A');
+          document.getElementById('fin-candidates-info').innerHTML =
+            '过滤后候选：<b>' + d.total_candidates + '</b> 只 ' +
+            '(ROE≥' + d.filters.min_roe + '%, 毛利率≥' + d.filters.min_gm +
+            '%, 负债率≤' + d.filters.max_debt + '%)';
+
+          var html = '';
+          (d.top || []).forEach(function (r) {
+            html += '<tr>' +
+              '<td>' + r.dm + '</td>' +
+              '<td>' + r.mc + '</td>' +
+              '<td class="up">' + r.roe_ttm.toFixed(2) + '</td>' +
+              '<td>' + r.gross_margin.toFixed(2) + '</td>' +
+              '<td>' + r.debt_ratio.toFixed(2) + '</td>' +
+              '<td class="up">' + r.rev_yoy.toFixed(2) + '</td>' +
+              '<td class="up">' + r.profit_yoy.toFixed(2) + '</td>' +
+              '<td><b>' + r.score.toFixed(2) + '</b></td>' +
+              '</tr>';
+          });
+          document.querySelector('#fin-top-table tbody').innerHTML = html;
+        })
+        .catch(function (e) {
+          document.getElementById('fin-date-status').textContent = '加载失败：' + e;
+        });
+    }
+
+    function loadSectorRank() {
+      fetch('/api/sector/rank', { credentials: 'include' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var html = '';
+          (d.sectors || []).forEach(function (r) {
+            html += '<tr>' +
+              '<td>' + r.name + '</td>' +
+              '<td>' + r.stock_count + '</td>' +
+              '<td class="up">' + r.avg_roe.toFixed(2) + '</td>' +
+              '<td>' + r.avg_gross_margin.toFixed(2) + '</td>' +
+              '<td class="' + (r.avg_rev_yoy >= 0 ? 'up' : 'down') + '">' +
+              r.avg_rev_yoy.toFixed(2) + '</td>' +
+              '<td class="' + (r.avg_profit_yoy >= 0 ? 'up' : 'down') + '">' +
+              r.avg_profit_yoy.toFixed(2) + '</td>' +
+              '<td>' + r.high_roe_count + '</td>' +
+              '</tr>';
+          });
+          document.querySelector('#fin-sector-table tbody').innerHTML = html;
+        })
+        .catch(function (e) {
+          console.error('sector rank load failed', e);
+        });
+    }
+
+    document.getElementById('fin-run-btn').addEventListener('click', function () {
+      loadFinancialTop();
+    });
+    loadFinancialTop();
+    loadSectorRank();
 
     function retClass(v) {
       if (typeof v !== "number") return "";
@@ -730,6 +861,143 @@
       loadBtStock(row.getAttribute("data-dm") || "", selectedBtCombo);
     });
     loadBtSummary();
+
+    // ── 尾盘观察 ──────────────────────────────────────────────
+    function wlFmt(v) {
+      if (v === null || v === undefined || v === "") return "-";
+      var n = Number(v);
+      if (isNaN(n)) return String(v);
+      return n.toFixed(2);
+    }
+    function wlPct(v) {
+      if (v === null || v === undefined || v === "") return "-";
+      var n = Number(v);
+      if (isNaN(n)) return String(v);
+      return (n > 0 ? "+" : "") + n.toFixed(2) + "%";
+    }
+    function wlStabilityBadge(v) {
+      if (v === "high") return '<span style="color:#1aab5a;font-size:12px">高</span>';
+      return '<span style="color:#c80;font-size:12px">低</span>';
+    }
+    function wlToggleChart(imgId) {
+      var img = document.getElementById(imgId);
+      if (!img) return;
+      var minuteUrl = img.getAttribute("data-minute");
+      var dailyUrl = img.getAttribute("data-daily");
+      if (img.src.indexOf("minute") !== -1) {
+        img.src = dailyUrl;
+        img.title = "点击切换分时";
+      } else {
+        img.src = minuteUrl;
+        img.title = "点击切换日线";
+      }
+    }
+    function wlLoad() {
+      var bar = document.getElementById("wl-market-bar");
+      var idxBox = document.getElementById("wl-market-indexes");
+      var comboBox = document.getElementById("wl-combo-list");
+      bar.textContent = "加载中…";
+      idxBox.innerHTML = "";
+      comboBox.innerHTML = '<div class="muted">加载中…</div>';
+      fetch("/api/watchlist")
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // 大盘状态
+          var bull = data.market_status === "bull";
+          var dateStr = data.date || "";
+          var genStr = data.generated_at || "";
+          bar.innerHTML =
+            '<span style="font-size:15px;font-weight:600">' +
+            (bull ? "📊 多头" : "📊 空仓") +
+            "</span>　" + dateStr + " " + genStr;
+          if (!bull) {
+            bar.style.color = "#e54545";
+          } else {
+            bar.style.color = "";
+          }
+
+          // 指数
+          var mIdx = data.market_index || {};
+          var idxNames = { sh: "上证", sz: "深证", kc50: "科创50", cyb: "创业板" };
+          var idxParts = [];
+          for (var k in idxNames) {
+            var info = mIdx[k] || {};
+            var close = info.close;
+            var status = info.status;
+            var above = status === "above";
+            idxParts.push(
+              '<span style="margin-right:12px">' +
+              idxNames[k] + " " + wlFmt(close) + " " +
+              (above ? '<span style="color:#1aab5a">✅</span>' : '<span style="color:#e54545">❌</span>') +
+              "</span>"
+            );
+          }
+          idxBox.innerHTML = idxParts.join("");
+
+          // 组合
+          var combos = data.combos || [];
+          if (!combos.length) {
+            comboBox.innerHTML = '<div class="card"><div class="muted">暂无数据</div></div>';
+            return;
+          }
+          comboBox.innerHTML = combos.map(function (combo, ci) {
+            var medal = ci === 0 ? "🥇" : ci === 1 ? "🥈" : "🥉";
+            var stocks = combo.stocks || [];
+            if (!stocks.length) {
+              return '<div class="card">' +
+                '<div class="meta">' + medal + " " + combo.win_rate + "% " +
+                combo.combo.replace(/\+/g, "+") + "（样本" + combo.sample + "）" +
+                '</div><div class="muted">无命中股票</div></div>';
+            }
+            return '<div class="card">' +
+              '<div class="meta" style="font-weight:600;margin-bottom:6px">' +
+              medal + " " + combo.win_rate + "% " + comboCn(combo.combo) +
+              "（样本" + combo.sample + "）" +
+              '</div>' +
+              stocks.map(function (s) {
+                var dm = s.dm || "";
+                var mc = s.mc || "";
+                var pct = s.pct_change;
+                var jys = s.jys || "";
+                var cls = (pct > 0) ? "up" : (pct < 0) ? "down" : "";
+                var signals = s.signals || [];
+                var stability = s.stability || {};
+                var signalBadges = signals.map(function (f) {
+                  var cn = FACTOR_CN[f] || f;
+                  var stab = stability[f] || "low";
+                  return '<span class="chip" style="font-size:11px;padding:3px 7px">' +
+                    cn + ' <span style="color:' + (stab === "high" ? "#1aab5a" : "#c80") + '">[' + (stab === "high" ? "高" : "低") + "]</span></span>";
+                }).join(" ");
+                var code6 = dm.replace(/\D/g, "").slice(0, 6);
+                var prefix = code6.charAt(0) === "6" ? "sh" : "sz";
+                var dailyUrl = "https://image.sinajs.cn/newchart/daily/n/" + prefix + code6 + ".gif";
+                var minuteUrl = "https://image.sinajs.cn/newchart/minute/n/" + prefix + code6 + ".gif";
+                var imgId = "wl-img-" + dm + "-" + ci;
+                return '<div class="stock-item" style="padding:8px 0;border-bottom:1px solid #f0f0f0">' +
+                  '<div class="stock-title">' +
+                  '<div class="stock-title-main">' +
+                  '<span style="color:var(--primary);font-weight:600">' +
+                  dm + " " + mc + '</span>' +
+                  '</div>' +
+                  '<span class="' + cls + '">' + wlPct(pct) + '</span>' +
+                  '</div>' +
+                  '<div style="margin-top:4px;font-size:12px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:6px">' +
+                  signalBadges +
+                  '</div>' +
+                  '<img id="' + imgId + '" src="' + dailyUrl + '" ' +
+                  'data-minute="' + minuteUrl + '" data-daily="' + dailyUrl + '" ' +
+                  'style="width:100%;max-width:480px;height:auto;border-radius:6px;cursor:pointer" ' +
+                  'onclick="wlToggleChart(\'' + imgId + '\')" ' +
+                  'title="点击切换分时/日线">';
+              }).join("");
+          }).join("");
+        })
+        .catch(function () {
+          bar.textContent = "加载失败";
+          comboBox.innerHTML = '<div class="card"><div class="muted">接口请求失败</div></div>';
+        });
+    }
+    wlLoad();
   </script>
 </body>
 </html>
