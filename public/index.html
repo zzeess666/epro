@@ -359,7 +359,7 @@
 
     function switchTab(name) {
       if (!name) return;
-      var panes = ["recommend", "signal", "history", "analyze", "watchlist"];
+      var panes = ["recommend", "signal", "history", "analyze", "watchlist", "financial", "realtime"];
       for (var i = 0; i < panes.length; i++) {
         var pane = document.getElementById("tab-" + panes[i]);
         if (pane) pane.style.display = panes[i] === name ? "block" : "none";
