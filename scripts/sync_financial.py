@@ -17,9 +17,19 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import MAIRUI_API_KEYS
+from src.api.api_key_rotator import ApiKeyRotator, ApiKeyExhaustedError
 
 BASE = 'https://api.mairuiapi.com'
-TOKEN = MAIRUI_API_KEYS[0]
+_rotator = ApiKeyRotator()
+
+
+def _get_token() -> str:
+    """获取当前可用的麦蕊 API token（轮询 + 限流，超额时回退到第一个 key）"""
+    try:
+        return _rotator.next()
+    except ApiKeyExhaustedError:
+        # 所有 token 今日已满，回退到第一个 (后续可能 1213 限流但至少能跑)
+        return _rotator.keys[0]
 
 DB_CONFIG = {
     'host': '127.0.0.1',
@@ -129,7 +139,7 @@ def sync_quarterly(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/pershareindex/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/pershareindex/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -198,7 +208,7 @@ def sync_income(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/income/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/income/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -263,7 +273,7 @@ def sync_balance(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/balance/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/balance/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -331,7 +341,7 @@ def sync_cashflow(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/cashflow/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/cashflow/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -392,7 +402,7 @@ def sync_hm(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/hm/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/hm/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -436,7 +446,7 @@ def sync_hm(conn, dm_with_jys):
 def sync_dividend(conn, dm_with_jys):
     """同步分红 - 批量插入"""
     dm, jys_short, code = dm_with_jys
-    url = f'{BASE}/hscp/jnfh/{dm}/{TOKEN}'
+    url = f'{BASE}/hscp/jnfh/{dm}/{_get_token()}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -482,7 +492,7 @@ def sync_dividend(conn, dm_with_jys):
 def sync_unlock(conn, dm_with_jys):
     """同步解禁 - 批量插入"""
     dm, jys_short, code = dm_with_jys
-    url = f'{BASE}/hscp/jjxs/{dm}/{TOKEN}'
+    url = f'{BASE}/hscp/jjxs/{dm}/{_get_token()}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0
@@ -529,7 +539,7 @@ def sync_top10_holder(conn, dm_with_jys):
     et = date.today().strftime('%Y%m%d')
     st = (date.today().replace(year=date.today().year - 5)).strftime('%Y%m%d')
 
-    url = f'{BASE}/hsstock/financial/topholder/{code}/{TOKEN}?st={st}&et={et}'
+    url = f'{BASE}/hsstock/financial/topholder/{code}/{_get_token()}?st={st}&et={et}'
     data = fetch_with_retry(url)
     if not data or not isinstance(data, list):
         return 0

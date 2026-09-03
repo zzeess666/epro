@@ -13,9 +13,18 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import MAIRUI_API_KEYS
+from src.api.api_key_rotator import ApiKeyRotator, ApiKeyExhaustedError
 
-TOKEN = MAIRUI_API_KEYS[0]
 BASE = 'https://api.mairuiapi.com'
+_rotator = ApiKeyRotator()
+
+
+def _get_token() -> str:
+    """获取当前可用的麦蕊 API token（轮询 + 限流，超额时回退到第一个 key）"""
+    try:
+        return _rotator.next()
+    except ApiKeyExhaustedError:
+        return _rotator.keys[0]
 
 DB_CONFIG = {
     'host': '127.0.0.1',
@@ -70,7 +79,7 @@ def sync_sector_basic(conn):
     total = 0
 
     # 申万一级/二级/三级
-    data = fetch(f'{BASE}/hslt/primarylist/{TOKEN}')
+    data = fetch(f'{BASE}/hslt/primarylist/{_get_token()}')
     if data and isinstance(data, list):
         cur = conn.cursor()
         rows = []
@@ -95,7 +104,7 @@ def sync_sector_basic(conn):
         print(f'  申万板块: {len(rows)} 条')
 
     # 概念板块
-    data = fetch(f'{BASE}/hslt/sectorslist/{TOKEN}')
+    data = fetch(f'{BASE}/hslt/sectorslist/{_get_token()}')
     if data and isinstance(data, list):
         cur = conn.cursor()
         rows = []
@@ -130,7 +139,7 @@ def sync_stock_sector(conn):
 
     t0 = time.time()
     for i, dm in enumerate(stocks, 1):
-        data = fetch(f'{BASE}/hszg/zg/{dm}/{TOKEN}')
+        data = fetch(f'{BASE}/hszg/zg/{dm}/{_get_token()}')
         if data and isinstance(data, list):
             rows = []
             for item in data:
