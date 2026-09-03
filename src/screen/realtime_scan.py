@@ -155,9 +155,15 @@ def find_second_breakout(current_price, bars):
         if not middle_ok:
             continue
 
-        # 当前实时价 > B 收
-        if current_price <= B_close:
+        # today K 线的收盘价 > B 收（确认真正的二次突破，不只是盘中瞬间）
+        today_close = bars[today_idx]['c']
+        if today_close is None or today_close <= B_close:
             continue
+
+        # 当前实时价 > today K 线收盘（确认盘中继续走强，不买突破后立刻回落的）
+        # 这一条可选，去掉可避免"假突破"被过滤掉
+        # if current_price <= today_close:
+        #     continue
 
         # 通过！
         return {
