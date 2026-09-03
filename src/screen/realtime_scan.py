@@ -150,7 +150,7 @@ def find_breakouts(realtime, klines):
             if i == 0:
                 continue
             cur_bar = prev_3_bars[i]
-            past_bars = prev_3_bars[max(-1, i-3):i]  # 之前 1-3 天
+            past_bars = prev_3_bars[max(0, i-3):i]  # 之前 1-3 天
             if not past_bars:
                 continue
             past_high = float(max(b['h'] for b in past_bars if b['h']))
@@ -167,6 +167,41 @@ def find_breakouts(realtime, klines):
         # 当前价 >= 前次突破日收盘（确实在二次突破）
         if current < pb['c']:
             continue
+
+        # 回踩检测：B日之后到当前之间，必须有过缩量回调
+        # 且回调的最低价 >= B日的最低价（没破位）
+        pb_low = float(pb['l']) if pb['l'] else None
+        pb_vol = float(pb['v']) if pb['v'] else None
+
+        if pb_low is None or pb_vol is None:
+            continue
+
+        # 找B日之后到昨天的所有bar
+        pullback_bars = prev_3_bars[prev_breakout_idx + 1:]
+        if not pullback_bars:
+            # B是最近的一天，没空间回踩
+            if dm == '600519':
+                print(f'    [debug {dm}] 无回踩窗口: pb_idx={prev_breakout_idx}/{len(prev_3_bars)}')
+            continue
+
+        # 计算回踩窗口的最低价 + 平均成交量
+        pullback_low = min(float(b['l']) for b in pullback_bars if b['l'])
+        pullback_vol_avg = sum(float(b['v'] or 0) for b in pullback_bars) / len(pullback_bars)
+
+        # 检查：1) 最低价 >= B日的最低价 × 0.98（容忍2% 破位）
+        #      2) 平均成交量 < B日的 80%（缩量）
+        if pullback_low < pb_low * 0.98:
+            if dm == '600519':
+                print(f'    [debug {dm}] 回踩破位: pullback_low={pullback_low:.2f} pb_low={pb_low:.2f}')
+            continue
+
+        if pullback_vol_avg > pb_vol * 0.80:
+            if dm == '600519':
+                print(f'    [debug {dm}] 没缩量: avg={pullback_vol_avg:.0f} pb_vol={pb_vol:.0f}')
+            continue
+
+        if dm == '600519':
+            print(f'    [debug {dm}] 通过所有过滤!')
 
         # 算止损：突破前 3 天最低点 vs 当前价 -4%
         stop_loss = max(prev_high * 0.96, current * 0.96)
