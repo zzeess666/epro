@@ -2,8 +2,14 @@
 """
 14:30 实时二次突破扫描
 - 拉全市场实时价（新浪接口）
-- 拉过去 5 天的 K 线（最新K线 + 前4天）
-- 找出二次突破股票（当前价破前4天高点，且前1~4天有过突破）
+- 拉历史K线（至少35天）
+- 找出二次突破股票：
+  A: 当前实时价
+  B: 今天之前 2~4 个交易日的某日
+  判断：
+   1. B 日收盘 = B-30 ~ B-1 的最高收盘（不含 B 日）
+   2. A 和 B 之间（B+1 到 今天-1）：每日收盘 < B 日收盘
+   3. 当前实时价 > B 日收盘
 - 写入 scan_realtime 表
 """
 import os
@@ -32,7 +38,7 @@ BASE_NEW = 'https://hq.sinajs.cn'
 
 def fetch_realtime_batch(dm_jys_list):
     """新浪批量实时拉取
-    返回: {dm: {name, current, open, prev_close, high, low, ...}}
+    返回: {dm: {name, current, prev_close, high, low, open, ...}}
     """
     codes = ','.join([f"{jys}{dm}" for dm, jys in dm_jys_list])
     url = f'{BASE_NEW}/list={codes}'
@@ -49,7 +55,6 @@ def fetch_realtime_batch(dm_jys_list):
         line = line.strip()
         if not line.startswith('var hq_str_'):
             continue
-        # var hq_str_sh600519="贵州茅台,1297.99,1293.09,1300.00,1305.00,1295.50,...,时间戳";
         try:
             left, right = line.split('=', 1)
             code = left.replace('var hq_str_', '').strip()
@@ -57,42 +62,34 @@ def fetch_realtime_batch(dm_jys_list):
             if not payload:
                 continue
             fields = payload.split(',')
-            # 解析 jys + dm
             jys = 'sh' if code.startswith('sh') else ('sz' if code.startswith('sz') else 'bj')
             dm = code[2:]
-            # 新浪字段顺序（参考 sync_daily_sina.py）：
-            # 0=名称, 1=今开, 2=昨收, 3=当前价, 4=今高, 5=今低
-            # ...
-            # 30=日期, 31=时间
             name = fields[0]
             current = float(fields[3]) if fields[3] else None
             prev_close = float(fields[2]) if fields[2] else None
             high = float(fields[4]) if fields[4] else None
             low = float(fields[5]) if fields[5] else None
             open_ = float(fields[1]) if fields[1] else None
-            date_str = fields[30] if len(fields) > 30 else None
-            time_str = fields[31] if len(fields) > 31 else None
-            if not current or not prev_close or not date_str:
+            if not current or not prev_close:
                 continue
             result[dm] = {
                 'dm': dm, 'mc': name, 'jys': jys,
                 'current': current, 'prev_close': prev_close,
                 'high': high, 'low': low, 'open': open_,
-                'date': date_str, 'time': time_str,
             }
-        except (IndexError, ValueError) as e:
+        except (IndexError, ValueError):
             continue
     return result
 
 
-def load_klines_5d(conn):
-    """加载每只股票最近 10 天 K 线（够覆盖国庆/中秋长假）
+def load_klines(conn, days=60):
+    """加载每只股票最近 60 天的 K 线
     返回: {dm: [bars]} bars按日期升序
     """
     cur = conn.cursor(pymysql.cursors.DictCursor)
     cur.execute("SELECT MAX(t) AS d FROM daily_kline")
     max_date = cur.fetchone()['d']
-    start = max_date - timedelta(days=10)
+    start = max_date - timedelta(days=days)
 
     cur.execute("""
         SELECT dm, t, o, h, l, c, v
@@ -103,136 +100,86 @@ def load_klines_5d(conn):
 
     klines = {}
     for r in cur.fetchall():
-        klines.setdefault(r['dm'], []).append(r)
+        klines.setdefault(r['dm'], []).append({
+            't': r['t'], 'o': r['o'], 'h': r['h'], 'l': r['l'],
+            'c': float(r['c']) if r['c'] is not None else None,
+            'v': float(r['v']) if r['v'] is not None else None,
+        })
     return klines
 
 
-def find_breakouts(realtime, klines):
-    """找出二次突破股票
-
-    二次突破定义：
-    - 当前价（实时）> 过去 4 天内（含今日）的最高收盘价 × 0.995
-    - 过去 4 天内有过"前次突破"：某日收盘 > 之前 3 天最高收盘价
-    - 当前价 > 前次突破日收盘价（即使是微破也算）
+def find_second_breakout(current_price, bars):
     """
-    candidates = []
+    二次突破判断（你的精确定义）
+    bars: K线列表（升序）
+    返回: dict (B 信息) or None
+    """
+    # 至少需要 35 天（B+30天+B距今5天）
+    if len(bars) < 35:
+        return None
 
-    for dm, rt in realtime.items():
-        bars = klines.get(dm, [])
-        if len(bars) < 4:
+    today_idx = len(bars) - 1
+
+    # 尝试 2, 3, 4 天前作为 B 日
+    for days_back in [2, 3, 4]:
+        B_idx = today_idx - days_back
+        if B_idx < 30:
+            continue  # B 之前需要30天历史
+
+        B_bar = bars[B_idx]
+        B_close = B_bar['c']
+        B_low = B_bar['l']
+        B_high = B_bar['h']
+        B_date = B_bar['t']
+
+        if B_close is None or B_low is None or B_high is None:
             continue
 
-        current = rt['current']
-
-        # 找出"过去 4 天内"的最高点
-        # bars[-1] 是今日已存入的K线
-        # 但 rt['current'] 是实时价（14:30 的盘中价），可能比今日K线更高
-        # 用 prev_3_bars = 今日之前的 4 天数据
-        if len(bars) < 5:
-            continue
-        prev_3_bars = bars[-5:-1]  # 今日之前的 4 天
-
-        if len(prev_3_bars) < 3:
-            # bars 不足 5 天（新股或近期上市），尝试用所有历史
-            prev_3_bars = bars[:-1]
-            if len(prev_3_bars) < 3:
-                continue
-
-        prev_high = float(max(b['h'] for b in prev_3_bars if b['h']))
-
-        # 突破高点（缓冲 0.5%）
-        if current < prev_high * 0.995:
+        # 关键：B-30 ~ B-1（不含 B 日）的 30 天窗口
+        window = bars[B_idx - 30: B_idx]
+        if len(window) < 30:
             continue
 
-        # 找出过去 4 天内的"前次突破"：某日 c > 它之前的最高
-        prev_breakout_idx = None
-        for i in range(len(prev_3_bars)):
-            if i == 0:
-                continue
-            cur_bar = prev_3_bars[i]
-            past_bars = prev_3_bars[max(0, i-3):i]  # 之前 1-3 天
-            if not past_bars:
-                continue
-            past_high = float(max(b['h'] for b in past_bars if b['h']))
-            if cur_bar['c'] > past_high:
-                prev_breakout_idx = i
-                # 取最早的突破日
+        # 严格判断：B 日收盘 = 前 30 天最高
+        max_close = max(b['c'] for b in window if b['c'] is not None)
+        if abs(B_close - max_close) > 0.001:
+            continue
+
+        # 中间日（B+1 到 today-1）的收盘 < B 收
+        middle_ok = True
+        for i in range(B_idx + 1, today_idx):
+            c = bars[i]['c']
+            if c is None or c >= B_close:
+                middle_ok = False
                 break
-
-        if prev_breakout_idx is None:
+        if not middle_ok:
             continue
 
-        pb = prev_3_bars[prev_breakout_idx]
-
-        # 当前价 >= 前次突破日收盘（确实在二次突破）
-        if current < pb['c']:
+        # 当前实时价 > B 收
+        if current_price <= B_close:
             continue
 
-        # 回踩检测：B日之后到当前之间，必须有过缩量回调
-        # 且回调的最低价 >= B日的最低价（没破位）
-        pb_low = float(pb['l']) if pb['l'] else None
-        pb_vol = float(pb['v']) if pb['v'] else None
+        # 通过！
+        return {
+            'B_idx': B_idx,
+            'B_date': B_date,
+            'B_close': B_close,
+            'B_low': B_low,
+            'B_high': B_high,
+            'days_back': days_back,
+            'middle_days': [bars[i]['t'] for i in range(B_idx + 1, today_idx)],
+        }
 
-        if pb_low is None or pb_vol is None:
-            continue
-
-        # 找B日之后到昨天的所有bar
-        pullback_bars = prev_3_bars[prev_breakout_idx + 1:]
-        if not pullback_bars:
-            # B是最近的一天，没空间回踩
-            continue
-
-        if pullback_bars:
-            pullback_low = min(float(b['l']) for b in pullback_bars if b['l'])
-            # 缩量要求：至少有一天成交量 < B日 × 0.80
-            has_shrink = any(float(b['v'] or 0) < pb_vol * 0.80 for b in pullback_bars)
-
-            # 检查：1) 最低价 >= B日的最低价 × 0.98（容忍2% 破位）
-            #      2) 至少有一天缩量（成交量 < B日 × 0.80）
-            if pullback_low < pb_low * 0.98:
-                continue
-
-            if not has_shrink:
-                continue
-            print(f'    [debug {dm}] 通过所有过滤!')
-
-        # 算止损：突破前 3 天最低点 vs 当前价 -4%
-        stop_loss = max(prev_high * 0.96, current * 0.96)
-
-        candidates.append({
-            'dm': dm,
-            'mc': rt['mc'],
-            'current_price': current,
-            'prev_close': rt['prev_close'],
-            'pct_change': (current - rt['prev_close']) / rt['prev_close'] * 100,
-            'prev_breakout_date': pb['t'],
-            'prev_breakout_close': float(pb['c']),
-            'prev_breakout_high': float(pb['h']),
-            'prev_high_4d': float(prev_high),
-            'stop_loss': round(stop_loss, 2),
-            'detail': {
-                'now': current, 'prev_high_4d': prev_high,
-                'prev_breakout_date': str(pb['t']),
-                'prev_breakout_close': float(pb['c']),
-                'prev_breakout_high': float(pb['h']),
-                'today_open': rt['open'],
-                'today_high': rt['high'],
-                'today_low': rt['low'],
-            }
-        })
-
-    candidates.sort(key=lambda x: x['pct_change'], reverse=True)
-    return candidates
+    return None
 
 
 def save_results(conn, candidates, scan_time):
-    """保存到 scan_realtime 表（按扫描时间批量）"""
+    """保存到 scan_realtime 表"""
     if not candidates:
         print('  无候选，跳过保存')
         return 0
 
     cur = conn.cursor()
-    # 先清掉同一时间的（重新跑同一时间戳）
     cur.execute("DELETE FROM scan_realtime WHERE scan_time = %s", (scan_time,))
 
     rows = []
@@ -240,17 +187,23 @@ def save_results(conn, candidates, scan_time):
         rows.append((
             c['dm'], c['mc'], scan_time,
             c['current_price'], c['prev_close'], round(c['pct_change'], 2),
-            c['prev_breakout_date'], c['prev_breakout_close'], c['prev_breakout_high'],
-            c['prev_high_4d'], c['stop_loss'],
-            json.dumps(c['detail'], ensure_ascii=False, default=str)
+            c['B_date'], c['B_close'], c['B_high'],
+            round(float(c['B_low']) * 0.98, 2),  # 止损 = B低 × 0.98
+            json.dumps({
+                'B_date': str(c['B_date']),
+                'B_close': c['B_close'],
+                'B_low': c['B_low'],
+                'days_back': c['days_back'],
+                'middle_days': [str(d) for d in c['middle_days']],
+            }, ensure_ascii=False, default=str)
         ))
     cur.executemany("""
         INSERT INTO scan_realtime
         (dm, mc, scan_time,
          current_price, prev_close, pct_change,
          prev_breakout_date, prev_breakout_close, prev_breakout_high,
-         prev_high_4d, stop_loss, detail)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+         stop_loss, detail)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, rows)
     conn.commit()
     return len(rows)
@@ -258,8 +211,15 @@ def save_results(conn, candidates, scan_time):
 
 def main():
     print('=' * 80)
-    print('14:30 实时二次突破扫描')
+    print('14:30 实时二次突破扫描（按你的精确定义）')
     print('=' * 80)
+    print('定义:')
+    print('  B日 = 今天之前 2~4 个交易日')
+    print('  B 日收盘 = B-30 ~ B-1 的最高收盘（不含 B 日）')
+    print('  中间日（B+1 到 今天-1）收盘 < B 收')
+    print('  当前实时价 > B 收')
+    print('  止损 = B 低 × 0.98')
+    print()
 
     conn = pymysql.connect(**DB)
 
@@ -269,9 +229,9 @@ def main():
     all_stocks = [(r[0], r[1].lower()) for r in cur.fetchall() if r[1]]
     print(f'共 {len(all_stocks)} 只股票')
 
-    # 2. 加载 5 天 K 线
-    print('加载 K 线...')
-    klines = load_klines_5d(conn)
+    # 2. 加载 60 天 K 线
+    print('加载 60 天 K 线...')
+    klines = load_klines(conn, days=60)
     print(f'K 线覆盖 {len(klines)} 只股票')
 
     # 3. 新浪批量拉实时价（50只/批）
@@ -283,14 +243,35 @@ def main():
         batch = all_stocks[i:i+batch_size]
         rt = fetch_realtime_batch(batch)
         realtime.update(rt)
-        if (i // batch_size) % 10 == 0:
+        if (i // batch_size) % 20 == 0:
             elapsed = time.time() - t0
             print(f'  {i+len(batch)}/{len(all_stocks)} 拉取到{len(realtime)} 耗时{elapsed:.1f}秒')
     print(f'共拉取到 {len(realtime)} 只实时价，耗时 {time.time()-t0:.1f}秒')
 
     # 4. 扫描二次突破
     print('\n扫描二次突破...')
-    candidates = find_breakouts(realtime, klines)
+    candidates = []
+    for dm, rt in realtime.items():
+        bars = klines.get(dm, [])
+        result = find_second_breakout(rt['current'], bars)
+        if result:
+            candidates.append({
+                'dm': dm,
+                'mc': rt['mc'],
+                'current_price': rt['current'],
+                'prev_close': rt['prev_close'],
+                'pct_change': (rt['current'] - rt['prev_close']) / rt['prev_close'] * 100,
+                'B_date': result['B_date'],
+                'B_close': result['B_close'],
+                'B_low': result['B_low'],
+                'B_high': result['B_high'],
+                'days_back': result['days_back'],
+                'middle_days': result['middle_days'],
+            })
+
+    # 按 B 距今天数 + 涨幅排序
+    candidates.sort(key=lambda x: (x['days_back'], -x['pct_change']))
+
     print(f'找到 {len(candidates)} 只候选')
 
     # 5. 保存
@@ -299,14 +280,16 @@ def main():
     print(f'\n保存 {saved} 条到 scan_realtime 表')
     print(f'扫描时间: {scan_time}')
 
-    # 6. 显示 Top 10
-    print('\nTop 10 候选:')
-    print(f'{"代码":<8} {"名称":<10} {"当前价":<8} {"涨跌幅":<8} {"前4天高":<8} {"前次突破日":<12} {"前次突破价":<10} {"止损"}')
-    print('-' * 80)
-    for c in candidates[:10]:
-        print(f'{c["dm"]:<8} {c["mc"][:8]:<10} {c["current_price"]:<8.2f} '
-              f'{c["pct_change"]:+6.2f}%  {c["prev_high_4d"]:<8.2f} '
-              f'{str(c["prev_breakout_date"]):<12} {c["prev_breakout_close"]:<10.2f} {c["stop_loss"]}')
+    # 6. 显示
+    if candidates:
+        print('\n候选详情:')
+        print(f'{"代码":<8} {"名称":<10} {"当前价":<8} {"涨跌幅":<9} {"B日":<12} {"B收":<8} {"B距":<5} {"止损"}')
+        print('-' * 80)
+        for c in candidates:
+            pct = (c['current_price'] - c['prev_close']) / c['prev_close'] * 100
+            print(f"{c['dm']:<8} {c['mc'][:8]:<10} {c['current_price']:<8.2f} "
+                  f"{pct:+6.2f}%  {str(c['B_date']):<12} {c['B_close']:<8.2f} "
+                  f"{c['days_back']:>3}天   {float(c['B_low'])*0.98:.2f}")
 
     conn.close()
 
