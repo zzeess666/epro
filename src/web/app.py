@@ -836,11 +836,7 @@ def _date_str(value: date | None) -> str | None:
 def api_financial_top(min_roe: float = 15, min_gm: float = 30,
                       max_debt: float = 60, top_n: int = 10):
     """财务过滤选股 TopN"""
-    conn = pymysql.connect(
-        host='127.0.0.1', port=3306, user='epro',
-        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT MAX(report_date) AS d FROM financial_quarterly")
     max_date = cur.fetchone()['d']
@@ -921,11 +917,7 @@ def api_financial_top(min_roe: float = 15, min_gm: float = 30,
 @app.get("/api/sector/rank")
 def api_sector_rank():
     """申万一级行业排名（按 ROE 均值）"""
-    conn = pymysql.connect(
-        host='127.0.0.1', port=3306, user='epro',
-        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT MAX(report_date) AS d FROM financial_quarterly")
     max_date = cur.fetchone()['d']
@@ -987,11 +979,7 @@ def api_combo_financial(min_roe: float = 15, min_gm: float = 30,
                          max_debt: float = 60, min_factors: int = 2,
                          top_n: int = 10):
     """财务+技术叠加精选"""
-    conn = pymysql.connect(
-        host='127.0.0.1', port=3306, user='epro',
-        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = get_connection()
     cur = conn.cursor()
 
     # 大盘状态
@@ -1124,11 +1112,7 @@ def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/scan/realtime")
 def api_scan_realtime(limit: int = 50):
     """14:30 实时二次突破扫描结果（最新一次扫描）"""
-    conn = pymysql.connect(
-        host='127.0.0.1', port=3306, user='epro',
-        password='nTWTkkhfYxnbEhFp', database='epro', charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = get_connection()
     cur = conn.cursor()
     # 最新扫描时间
     cur.execute("SELECT MAX(scan_time) AS t FROM scan_realtime")
