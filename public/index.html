@@ -530,6 +530,22 @@
     document.getElementById('rt-refresh-btn').addEventListener('click', loadRealtimeScan);
     loadRealtimeScan();
 
+    // 14:00-15:00 盘中每 20 分钟自动刷新
+    function autoRefreshIfMarketHours() {
+      var now = new Date();
+      var h = now.getHours();
+      var m = now.getMinutes();
+      // 14:00-15:00 范围
+      if (h >= 14 && h < 15) {
+        loadRealtimeScan();
+        console.log('[14:30实时] 自动刷新', now.toLocaleTimeString());
+      }
+    }
+    // 启动时跑一次
+    autoRefreshIfMarketHours();
+    // 每 20 分钟检查一次
+    setInterval(autoRefreshIfMarketHours, 20 * 60 * 1000);
+
     function retClass(v) {
       if (typeof v !== "number") return "";
       return v > 0 ? "up" : "down";
