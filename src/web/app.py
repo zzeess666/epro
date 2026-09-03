@@ -810,6 +810,12 @@ def index() -> FileResponse:
     return FileResponse(INDEX_HTML, media_type="text/html; charset=utf-8")
 
 
+@app.get("/debug/{filename}")
+def debug_static(filename: str):
+    """临时 debug：serve public 下的任何文件"""
+    return FileResponse(PUBLIC_DIR / filename)
+
+
 @app.get("/echarts.min.js")
 def echarts_js() -> FileResponse:
     return FileResponse(PUBLIC_DIR / "echarts.min.js", media_type="application/javascript")
@@ -1134,7 +1140,7 @@ def api_scan_realtime(limit: int = 50):
     cur.execute("""
         SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
                prev_breakout_date, prev_breakout_close, prev_breakout_high,
-               prev_high_4d, stop_loss, detail
+               stop_loss, detail
         FROM scan_realtime
         WHERE scan_time = %s
         ORDER BY pct_change DESC
@@ -1155,7 +1161,6 @@ def api_scan_realtime(limit: int = 50):
             'prev_breakout_date': r['prev_breakout_date'].isoformat() if r['prev_breakout_date'] else None,
             'prev_breakout_close': float(r['prev_breakout_close'] or 0),
             'prev_breakout_high': float(r['prev_breakout_high'] or 0),
-            'prev_high_4d': float(r['prev_high_4d'] or 0),
             'stop_loss': float(r['stop_loss'] or 0),
         })
 

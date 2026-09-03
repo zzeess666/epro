@@ -209,7 +209,7 @@
               <thead>
                 <tr>
                   <th>代码</th><th>名称</th><th>当前价</th><th>涨跌幅</th>
-                  <th>前4天高</th><th>前次突破日</th><th>前次突破价</th>
+                  <th>前次突破日</th><th>前次突破价</th>
                   <th>止损价</th>
                 </tr>
               </thead>
@@ -497,7 +497,7 @@
             document.getElementById('rt-scan-info').textContent = '暂无数据';
             document.getElementById('rt-count').innerHTML = '';
             document.querySelector('#rt-table tbody').innerHTML =
-              '<tr><td colspan="7" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py）</td></tr>';
+              '<tr><td colspan="6" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py）</td></tr>';
             return;
           }
           document.getElementById('rt-scan-info').textContent =
@@ -514,14 +514,13 @@
               '<td>' + r.mc + '</td>' +
               '<td>' + r.current_price.toFixed(2) + '</td>' +
               '<td class="' + pctClass + '">' + pctStr + '</td>' +
-              '<td>' + r.prev_high_4d.toFixed(2) + '</td>' +
               '<td>' + r.prev_breakout_date + '</td>' +
               '<td>' + r.prev_breakout_close.toFixed(2) + '</td>' +
               '<td>' + r.stop_loss.toFixed(2) + '</td>' +
               '</tr>';
           });
           document.querySelector('#rt-table tbody').innerHTML = html ||
-            '<tr><td colspan="7" style="text-align:center;color:#999">无候选</td></tr>';
+            '<tr><td colspan="6" style="text-align:center;color:#999">无候选</td></tr>';
         })
         .catch(function (e) {
           document.getElementById('rt-scan-info').textContent = '加载失败: ' + e;
