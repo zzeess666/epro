@@ -395,8 +395,7 @@
 
       // 1. 财务+技术叠加
       fetch('/api/combo/financial?min_roe=' + minRoe + '&min_gm=' + minGm +
-            '&max_debt=' + maxDebt + '&min_factors=' + minFactors + '&top_n=' + topN,
-            { credentials: 'include' })
+            '&max_debt=' + maxDebt + '&min_factors=' + minFactors + '&top_n=' + topN)
         .then(function (r) { return r.json(); })
         .then(function (d) {
           document.getElementById('fin-date-status').textContent =
@@ -436,7 +435,7 @@
 
       // 2. 纯财务 Top（原有接口）
       fetch('/api/financial/top?min_roe=' + minRoe + '&min_gm=' + minGm +
-            '&max_debt=' + maxDebt + '&top_n=' + topN, { credentials: 'include' })
+            '&max_debt=' + maxDebt + '&top_n=' + topN)
         .then(function (r) { return r.json(); })
         .then(function (d) {
           var html = '';
@@ -457,7 +456,7 @@
     }
 
     function loadSectorRank() {
-      fetch('/api/sector/rank', { credentials: 'include' })
+      fetch('/api/sector/rank')
         .then(function (r) { return r.json(); })
         .then(function (d) {
           var html = '';
@@ -491,7 +490,7 @@
     function loadRealtimeScan() {
       var limit = parseInt(document.getElementById('rt-limit').value) || 50;
       document.getElementById('rt-scan-info').textContent = '加载中…';
-      fetch('/api/scan/realtime?limit=' + limit, { credentials: 'include' })
+      fetch('/api/scan/realtime?limit=' + limit)
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (!d.scan_time) {
