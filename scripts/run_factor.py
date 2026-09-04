@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""CLI：计算全市场因子库，写入 factor_flag。"""
+"""CLI：计算因子库并写入 factor_flag。
+   --today  仅计算今日（快速日更），默认全量
+"""
 
 from __future__ import annotations
 
@@ -22,6 +24,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="仅计算前 N 只股票（调试用）；默认全市场",
     )
+    parser.add_argument(
+        "--today",
+        action="store_true",
+        help="仅计算今日因子（快速日更），只加载最近65天数据",
+    )
     return parser.parse_args(argv)
 
 
@@ -29,10 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.limit is not None and args.limit <= 0:
         print("[factor] --limit 必须为正整数")
-        return 2
-    counts = run(args.limit)
+        return 1
+    counts = run(args.limit, today_only=args.today)
     total = sum(counts.values())
-    print(f"[factor] 完成，命中合计={total}")
+    print(f"[factor] 完成，共写入 {total} 条因子记录")
     return 0
 
 
