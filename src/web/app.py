@@ -1111,8 +1111,13 @@ def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
 
 @app.get("/api/scan/realtime")
 def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
-    """14:30 实时扫描结果（按 mode 区分: second_breakout 二次突破 / strong_holdup 强势股不跌）"""
-    table = 'scan_realtime_strong' if mode == 'strong_holdup' else 'scan_realtime'
+    """14:30 实时扫描结果（按 mode 区分: second_breakout 二次突破 / strong_holdup 强势股 / limit_pullback 涨停回马枪）"""
+    table_map = {
+        'strong_holdup': 'scan_realtime_strong',
+        'limit_pullback': 'scan_realtime_limit',
+        'second_breakout': 'scan_realtime',
+    }
+    table = table_map.get(mode, 'scan_realtime')
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(f"SELECT MAX(scan_time) AS t FROM {table}")
@@ -1125,6 +1130,17 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
         cur.execute(f"""
             SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
                    trigger_date, ma20, pullback_pct, past_5_high,
+                   stop_loss, detail
+            FROM {table}
+            WHERE scan_time = %s
+            ORDER BY pct_change DESC
+            LIMIT %s
+        """, (latest, limit))
+    elif mode == 'limit_pullback':
+        cur.execute(f"""
+            SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
+                   limit_up_date, limit_up_close, pullback_date,
+                   pullback_close, pullback_low,
                    stop_loss, detail
             FROM {table}
             WHERE scan_time = %s
@@ -1161,6 +1177,14 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
                 'ma20': float(r['ma20'] or 0),
                 'pullback_pct': float(r['pullback_pct'] or 0),
                 'past_5_high': float(r['past_5_high'] or 0),
+            })
+        elif mode == 'limit_pullback':
+            item.update({
+                'limit_up_date': r['limit_up_date'].isoformat() if r['limit_up_date'] else None,
+                'limit_up_close': float(r['limit_up_close'] or 0),
+                'pullback_date': r['pullback_date'].isoformat() if r['pullback_date'] else None,
+                'pullback_close': float(r['pullback_close'] or 0),
+                'pullback_low': float(r['pullback_low'] or 0),
             })
         else:
             item.update({

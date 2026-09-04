@@ -108,6 +108,88 @@ def load_klines(conn, days=60):
     return klines
 
 
+def find_limit_pullback(current_price, bars):
+    """
+    涨停回马枪（盘中实时）
+    A: 当前实时价
+    1. 过去 5 天内有涨停日（c/o > 1.095）
+    2. 涨停后存在回踩日（缩量，量 < 涨停日 × 0.5）
+    3. 回踩日收盘 < 涨停日收盘 × 0.97
+    4. 今天收盘 > 回踩日收盘（企稳）
+    5. 当前价 > 涨停日收盘 × 0.95（突破后买回）
+    止损: 回踩日最低 × 0.97
+    """
+    if len(bars) < 10:
+        return None
+
+    today_idx = len(bars) - 1
+    today_bar = bars[today_idx]
+    real_c = current_price
+
+    # 找最近 5 天内的涨停日（含今天）
+    limit_up_idx = None
+    for i in range(today_idx - 4, today_idx + 1):
+        if i < 0:
+            continue
+        b = bars[i]
+        c, o, v = b['c'], b['o'], b['v']
+        if c is None or o is None or o <= 0 or v is None:
+            continue
+        if (float(c) - float(o)) / float(o) >= 0.095:
+            limit_up_idx = i
+            break
+
+    if limit_up_idx is None:
+        return None
+
+    limit_bar = bars[limit_up_idx]
+    limit_close = float(limit_bar['c'])
+    limit_vol = float(limit_bar['v'])
+    limit_date = limit_bar['t']
+
+    # 找涨停后的回踩日（涨停日之后到今天之前）
+    pullback_idx = None
+    for i in range(limit_up_idx + 1, today_idx):
+        b = bars[i]
+        c, v = b['c'], b['v']
+        if c is None or v is None:
+            continue
+        if v < limit_vol * 0.5 and c < limit_close * 0.97:
+            pullback_idx = i
+            break
+
+    if pullback_idx is None:
+        return None
+
+    pullback_bar = bars[pullback_idx]
+    pullback_close = float(pullback_bar['c'])
+    pullback_low = float(pullback_bar['l'])
+
+    # 今天收盘 > 回踩日收盘（企稳）
+    today_close = float(today_bar['c'])
+    if today_close <= pullback_close:
+        return None
+
+    # 当前价 > 涨停日收盘 × 0.95
+    if real_c < limit_close * 0.95:
+        return None
+
+    return {
+        'B_idx': today_idx,
+        'B_date': today_bar['t'],
+        'B_close': today_close,
+        'B_low': pullback_low,
+        'B_high': limit_close,
+        'days_back': 0,
+        'middle_days': [limit_bar['t'], pullback_bar['t']],
+        'limit_up_date': str(limit_date),
+        'limit_up_close': limit_close,
+        'pullback_date': str(pullback_bar['t']),
+        'pullback_close': pullback_close,
+        'stop_loss': round(pullback_low * 0.97, 2),
+    }
+
+
 def find_strong_holdup(current_price, bars):
     """
     强势股不跌（盘中实时）
@@ -252,7 +334,12 @@ def save_results(conn, candidates, scan_time, mode='second_breakout'):
         print('  无候选，跳过保存')
         return 0
 
-    table = 'scan_realtime_strong' if mode == 'strong_holdup' else 'scan_realtime'
+    table_map = {
+        'strong_holdup': 'scan_realtime_strong',
+        'limit_pullback': 'scan_realtime_limit',
+        'second_breakout': 'scan_realtime',
+    }
+    table = table_map.get(mode, 'scan_realtime')
 
     cur = conn.cursor()
     cur.execute(f"DELETE FROM {table} WHERE scan_time = %s", (scan_time,))
@@ -281,7 +368,7 @@ def save_results(conn, candidates, scan_time, mode='second_breakout'):
              past_5_high, stop_loss, detail)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, rows)
-    else:
+    elif mode == 'second_breakout':
         # 二次突破字段集
         rows = []
         for c in candidates:
@@ -306,6 +393,33 @@ def save_results(conn, candidates, scan_time, mode='second_breakout'):
              stop_loss, detail)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, rows)
+    elif mode == 'limit_pullback':
+        # 涨停回马枪字段集
+        rows = []
+        for c in candidates:
+            rows.append((
+                c['dm'], c['mc'], scan_time,
+                c['current_price'], c['prev_close'], round(c['pct_change'], 2),
+                c.get('limit_up_date'), c.get('limit_up_close'),
+                c.get('pullback_date'), c.get('pullback_close'), c.get('pullback_low'),
+                c.get('stop_loss'),
+                json.dumps({
+                    'limit_up_date': c.get('limit_up_date'),
+                    'limit_up_close': c.get('limit_up_close'),
+                    'pullback_date': c.get('pullback_date'),
+                    'pullback_close': c.get('pullback_close'),
+                    'pullback_low': c.get('pullback_low'),
+                }, ensure_ascii=False, default=str)
+            ))
+        cur.executemany(f"""
+            INSERT INTO {table}
+            (dm, mc, scan_time,
+             current_price, prev_close, pct_change,
+             limit_up_date, limit_up_close,
+             pullback_date, pullback_close, pullback_low,
+             stop_loss, detail)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, rows)
     conn.commit()
     return len(rows)
 
@@ -314,8 +428,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='14:30 实时扫描')
     parser.add_argument('--mode', default='second_breakout',
-                        choices=['second_breakout', 'strong_holdup'],
-                        help='扫描算法: second_breakout 二次突破 / strong_holdup 强势股不跌')
+                        choices=['second_breakout', 'strong_holdup', 'limit_pullback'],
+                        help='扫描算法: second_breakout 二次突破 / strong_holdup 强势股不跌 / limit_pullback 涨停回马枪')
     args = parser.parse_args()
 
     # 算法选择
@@ -323,10 +437,14 @@ def main():
         scan_func = find_second_breakout
         algo_name = '二次突破'
         algo_desc = 'B日=2-4天前收盘=前30天最高 + 中间日<B收 + 当前>B收'
-    else:  # strong_holdup
+    elif args.mode == 'strong_holdup':
         scan_func = find_strong_holdup
         algo_name = '强势股不跌'
         algo_desc = '当前>MA20 + 5日回撤<5% + 接近5日高 + 量能不缩'
+    else:  # limit_pullback
+        scan_func = find_limit_pullback
+        algo_name = '涨停回马枪'
+        algo_desc = '近5日内涨停+回踩(缩量+不破涨停收盘)+企稳'
 
     print('=' * 80)
     print(f'14:30 实时扫描 [{algo_name}]')
@@ -382,6 +500,11 @@ def main():
                 'middle_days': result['middle_days'],
                 'ma20': result.get('ma20'),
                 'pullback_pct': result.get('pullback_pct'),
+                'limit_up_date': result.get('limit_up_date'),
+                'limit_up_close': result.get('limit_up_close'),
+                'pullback_date': result.get('pullback_date'),
+                'pullback_close': result.get('pullback_close'),
+                'pullback_low': result.get('pullback_low'),
             })
 
     # 按 B 距今天数 + 涨幅排序
