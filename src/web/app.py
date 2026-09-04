@@ -1147,6 +1147,55 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
             ORDER BY pct_change DESC
             LIMIT %s
         """, (latest, limit))
+    elif mode == 'macd_second_golden':
+        # MACD 二次金叉走 factor_flag 表（不是 scan_realtime）
+        # 用 daily_kline 最新收盘日作为 scan_time
+        cur.execute("SELECT MAX(t) AS d FROM factor_flag")
+        latest_kline = cur.fetchone()['d']
+        cur.execute("""
+            SELECT ff.dm, sb.mc, %s AS scan_time,
+                   dk.c AS current_price, dk.pc AS prev_close, dk.h AS high, dk.l AS low,
+                   dk.t AS kline_date,
+                   0 AS pct_change, 0 AS stop_loss,
+                   NULL AS prev_breakout_date, 0 AS prev_breakout_close,
+                   0 AS prev_breakout_high
+            FROM factor_flag ff
+            JOIN stock_basic sb ON ff.dm = sb.dm
+            LEFT JOIN daily_kline dk ON dk.dm = ff.dm AND dk.t = %s
+            WHERE ff.t = %s
+              AND ff.factor = 'macd_second_golden'
+              AND ff.flag = 1
+            ORDER BY ff.dm
+            LIMIT %s
+        """, (latest_kline, latest_kline, latest_kline, limit))
+        rows = cur.fetchall()
+        # 计算 pct_change
+        for r in rows:
+            if r.get('current_price') and r.get('prev_close'):
+                r['pct_change'] = round((float(r['current_price']) - float(r['prev_close'])) / float(r['prev_close']) * 100, 2)
+        # 跳过通用 SELECT，直接用 rows
+        conn.close()
+        items = []
+        for r in rows:
+            item = {
+                'dm': r['dm'],
+                'mc': r['mc'],
+                'scan_time': str(latest_kline),
+                'current_price': float(r.get('current_price') or 0),
+                'prev_close': float(r.get('prev_close') or 0),
+                'pct_change': float(r.get('pct_change') or 0),
+                'stop_loss': 0,
+                'prev_breakout_date': None,
+                'prev_breakout_close': 0,
+                'prev_breakout_high': 0,
+            }
+            items.append(item)
+        return JSONResponse({
+            "scan_time": str(latest_kline),
+            "mode": mode,
+            "count": len(items),
+            "items": items
+        })
     else:
         cur.execute(f"""
             SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
@@ -1165,11 +1214,11 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
         item = {
             'dm': r['dm'],
             'mc': r['mc'],
-            'scan_time': r['scan_time'].isoformat() if r['scan_time'] else None,
-            'current_price': float(r['current_price'] or 0),
-            'prev_close': float(r['prev_close'] or 0),
-            'pct_change': float(r['pct_change'] or 0),
-            'stop_loss': float(r['stop_loss'] or 0),
+            'scan_time': r['scan_time'].isoformat() if hasattr(r['scan_time'], 'isoformat') else str(r['scan_time']),
+            'current_price': float(r.get('current_price') or 0),
+            'prev_close': float(r.get('prev_close') or 0),
+            'pct_change': float(r.get('pct_change') or 0),
+            'stop_loss': float(r.get('stop_loss') or 0),
         }
         if mode == 'strong_holdup':
             item.update({

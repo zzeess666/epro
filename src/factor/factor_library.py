@@ -14,6 +14,7 @@ from src.strategy.strategy_a import StrategyA
 # 用户指定（必须）+ 架构师补充
 FACTOR_NAMES: tuple[str, ...] = (
     "macd_golden",
+    "macd_second_golden",  # MACD 零轴下方第二次金叉
     "gap_up",
     "one_yang_3ma",
     "ma_bull",
@@ -282,6 +283,41 @@ def compute_factor_flags(klines: list[dict[str, Any]]) -> list[dict[str, int]]:
         ):
             row["macd_golden"] = 1
 
+        # MACD 零轴下方第二次金叉
+        # 条件: 今天 DIF 上穿 DEA 且 DIF < 0（零轴下方）
+        #       且 30-60 天前有过金叉（第一次）
+        #       且中间（30 天内）有过死叉
+        if (
+            diff[i] is not None
+            and dea[i] is not None
+            and i >= 60
+            and diff[i] > dea[i]
+            and diff[i] < 0  # 零轴下方（关键！）
+            and diff[i - 1] is not None
+            and dea[i - 1] is not None
+            and diff[i - 1] <= dea[i - 1]
+        ):
+            # 30 天内找死叉
+            has_death = False
+            for j in range(i - 1, max(i - 30, 0), -1):
+                if diff[j] is None or dea[j] is None or j < 1:
+                    continue
+                if diff[j - 1] is None or dea[j - 1] is None:
+                    continue
+                if diff[j] < dea[j] and diff[j - 1] >= dea[j - 1]:
+                    has_death = True
+                    break
+            # 30-60 天前找金叉
+            if has_death:
+                for j in range(i - 30, max(i - 60, 0), -1):
+                    if diff[j] is None or dea[j] is None or j < 1:
+                        continue
+                    if diff[j - 1] is None or dea[j - 1] is None:
+                        continue
+                    if diff[j] > dea[j] and diff[j - 1] <= dea[j - 1]:
+                        row["macd_second_golden"] = 1
+                        break
+
         if ma5 is not None and ma10 is not None and ma20 is not None and ma5 > ma10 > ma20:
             row["ma_bull"] = 1
 
@@ -393,57 +429,110 @@ def load_stock_codes(limit: int | None = None) -> list[str]:
         conn.close()
 
 
-def load_klines(dm: str, cursor=None) -> list[dict[str, Any]]:
+def load_klines(dm: str, cursor=None, recent_days: int | None = None) -> list[dict[str, Any]]:
+    """recent_days=None 表示全量；指定天数则只加载最近 N 天（加速日更）"""
     own = cursor is None
     conn = None
     if own:
         conn = get_connection()
         cursor = conn.cursor()
     try:
-        cursor.execute(
-            """
-            SELECT t, o, h, l, c, v, a, pc, ma5, ma10, ma20, ma60
-            FROM daily_kline
-            WHERE dm = %s
-            ORDER BY t ASC
-            """,
-            (dm,),
-        )
-        return [normalize_kline(row) for row in cursor.fetchall()]
+        if recent_days:
+            cursor.execute(
+                """
+                SELECT t, o, h, l, c, v, a, pc, ma5, ma10, ma20, ma60
+                FROM daily_kline
+                WHERE dm = %s
+                ORDER BY t DESC
+                LIMIT %s
+                """,
+                (dm, recent_days),
+            )
+            rows = cursor.fetchall()
+            rows.reverse()
+        else:
+            cursor.execute(
+                """
+                SELECT t, o, h, l, c, v, a, pc, ma5, ma10, ma20, ma60
+                FROM daily_kline
+                WHERE dm = %s
+                ORDER BY t ASC
+                """,
+                (dm,),
+            )
+            rows = cursor.fetchall()
+        return [normalize_kline(row) for row in rows]
     finally:
         if own and conn is not None:
             cursor.close()
             conn.close()
 
 
-def _bulk_replace_flags(cursor, dm: str, klines: list[dict[str, Any]], flags: list[dict[str, int]]) -> int:
-    cursor.execute("DELETE FROM factor_flag WHERE dm = %s", (dm,))
-    rows: list[tuple] = []
-    for bar, flag_map in zip(klines, flags):
-        day = bar["t"]
-        if day is None:
-            continue
+def _bulk_replace_flags(cursor, dm: str, klines: list[dict[str, Any]],
+                        flags: list[dict[str, int]], today_only: bool = False) -> int:
+    """today_only=True 时只更新今日因子，保留历史数据。"""
+    if not today_only:
+        cursor.execute("DELETE FROM factor_flag WHERE dm = %s", (dm,))
+        rows: list[tuple] = []
+        for bar, flag_map in zip(klines, flags):
+            day = bar["t"]
+            if day is None:
+                continue
+            for name, value in flag_map.items():
+                if value:
+                    rows.append((dm, day, name, 1))
+        if not rows:
+            return 0
+        sql_prefix = "INSERT INTO factor_flag (dm, t, factor, flag) VALUES "
+        written = 0
+        for offset in range(0, len(rows), INSERT_CHUNK):
+            chunk = rows[offset : offset + INSERT_CHUNK]
+            placeholders = ",".join(["(%s,%s,%s,%s)"] * len(chunk))
+            flat: list[Any] = []
+            for item in chunk:
+                flat.extend(item)
+            cursor.execute(sql_prefix + placeholders, flat)
+            written += len(chunk)
+        return written
+    else:
+        # today_only：只更新最后一根K线（今日）的因子
+        if not klines or not flags:
+            return 0
+        bar = klines[-1]
+        flag_map = flags[-1]
+        today = bar["t"]
+        if today is None:
+            return 0
+        # 先删今日
+        cursor.execute(
+            "DELETE FROM factor_flag WHERE dm = %s AND t = %s",
+            (dm, today),
+        )
+        rows = []
         for name, value in flag_map.items():
             if value:
-                rows.append((dm, day, name, 1))
-    if not rows:
-        return 0
-    sql_prefix = "INSERT INTO factor_flag (dm, t, factor, flag) VALUES "
-    written = 0
-    for offset in range(0, len(rows), INSERT_CHUNK):
-        chunk = rows[offset : offset + INSERT_CHUNK]
-        placeholders = ",".join(["(%s,%s,%s,%s)"] * len(chunk))
-        flat: list[Any] = []
-        for item in chunk:
-            flat.extend(item)
-        cursor.execute(sql_prefix + placeholders, flat)
-        written += len(chunk)
-    return written
+                rows.append((dm, today, name, 1))
+        if not rows:
+            return 0
+        sql_prefix = "INSERT INTO factor_flag (dm, t, factor, flag) VALUES "
+        written = 0
+        for offset in range(0, len(rows), INSERT_CHUNK):
+            chunk = rows[offset : offset + INSERT_CHUNK]
+            placeholders = ",".join(["(%s,%s,%s,%s)"] * len(chunk))
+            flat: list[Any] = []
+            for item in chunk:
+                flat.extend(item)
+            cursor.execute(sql_prefix + placeholders, flat)
+            written += len(chunk)
+        return written
 
 
-def run(limit: int | None = None) -> dict[str, int]:
-    """计算全市场（或 --limit）因子并写入 factor_flag。"""
+def run(limit: int | None = None, today_only: bool = False) -> dict[str, int]:
+    """计算全市场（或 --limit）因子并写入 factor_flag。
+       today_only=True 时只加载最近65天数据，大幅加速日更。
+    """
     ensure_tables()
+    RECENT_DAYS = 65  # 刚好覆盖最长均线MA60 + 足够历史判断形态
     codes = load_stock_codes(limit)
     counts = {name: 0 for name in FACTOR_NAMES}
     if not codes:
@@ -456,7 +545,7 @@ def run(limit: int | None = None) -> dict[str, int]:
     try:
         with conn.cursor() as cursor:
             for index, dm in enumerate(codes, start=1):
-                klines = load_klines(dm, cursor)
+                klines = load_klines(dm, cursor, recent_days=RECENT_DAYS if today_only else None)
                 if not klines:
                     if index % 50 == 0 or index == len(codes):
                         print(f"[factor] 进度 {index}/{len(codes)} 已写入={written_rows}")
@@ -466,7 +555,7 @@ def run(limit: int | None = None) -> dict[str, int]:
                     for name, value in flag_map.items():
                         if value:
                             counts[name] += 1
-                written_rows += _bulk_replace_flags(cursor, dm, klines, flags)
+                written_rows += _bulk_replace_flags(cursor, dm, klines, flags, today_only=today_only)
                 if index % 20 == 0:
                     conn.commit()
                 if index % 50 == 0 or index == len(codes):
