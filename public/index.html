@@ -137,18 +137,8 @@
         </div>
 
         <div class="card">
-          <div class="card-head">精选 Top（财务+技术综合）</div>
-          <div class="table-wrap" style="max-height:480px;overflow-y:auto">
-            <table class="data-table" id="fin-top-table">
-              <thead>
-                <tr>
-                  <th>代码</th><th>名称</th><th>财务分</th><th>技术分</th>
-                  <th>综合</th><th>因子数</th><th>命中因子</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <div class="card-head">精选 Top（财务+技术综合，点击图片切换日线/分时）</div>
+          <div id="fin-stock-list" style="max-height:600px;overflow-y:auto"></div>
         </div>
 
         <div class="card">
@@ -210,19 +200,8 @@
         </div>
 
         <div class="card">
-          <div class="card-head">候选股票（按涨跌幅排序）</div>
-          <div class="table-wrap" style="max-height:600px;overflow-y:auto">
-            <table class="data-table" id="rt-table">
-              <thead>
-                <tr>
-                  <th>代码</th><th>名称</th><th>当前价</th><th>涨跌幅</th>
-                  <th>前次突破日</th><th>前次突破价</th>
-                  <th>止损价</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <div class="card-head">候选股票（按涨跌幅排序，点击图片切换日线/分时）</div>
+          <div id="rt-stock-list" style="max-height:600px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -423,18 +402,31 @@
 
           var html = '';
           (d.top || []).forEach(function (r) {
-            html += '<tr>' +
-              '<td>' + r.dm + '</td>' +
-              '<td>' + r.mc + '</td>' +
-              '<td>' + r.fin_score.toFixed(1) + '</td>' +
-              '<td>' + r.tech_score.toFixed(1) + '</td>' +
-              '<td><b>' + r.combined_score.toFixed(1) + '</b></td>' +
-              '<td>' + r.factor_count + '</td>' +
-              '<td style="font-size:12px">' + r.factors_cn.join(' / ') + '</td>' +
-              '</tr>';
+            var code6 = r.dm.replace(/\D/g, '').slice(0, 6);
+            var prefix = code6.charAt(0) === '6' ? 'sh' : (code6.charAt(0) === '4' || code6.charAt(0) === '8' ? 'bj' : 'sz');
+            var dailyUrl = 'https://image.sinajs.cn/newchart/daily/n/' + prefix + code6 + '.gif';
+            var minuteUrl = 'https://image.sinajs.cn/newchart/minute/n/' + prefix + code6 + '.gif';
+            var imgId = 'fin-img-' + r.dm + '-' + Date.now();
+
+            html += '<div class="stock-item" style="padding:10px 0;border-bottom:1px solid #f0f0f0">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main">' +
+              '<span style="color:var(--primary);font-weight:600">' + r.dm + ' ' + r.mc + '</span>' +
+              '</div>' +
+              '<span style="font-weight:600">综合 ' + r.combined_score.toFixed(1) + '</span>' +
+              '</div>' +
+              '<div style="margin-top:4px;font-size:12px;color:#666">' +
+              '财务 ' + r.fin_score.toFixed(1) + ' | 技术 ' + r.tech_score.toFixed(1) + ' | 因子 ' + r.factor_count + ' 个<br>' +
+              '<span style="color:#888">' + r.factors_cn.join(' / ') + '</span>' +
+              '</div>' +
+              '<img id="' + imgId + '" src="' + dailyUrl + '" ' +
+              'data-minute="' + minuteUrl + '" data-daily="' + dailyUrl + '" ' +
+              'style="width:100%;max-width:520px;height:auto;border-radius:6px;cursor:pointer;margin-top:6px" ' +
+              'onclick="wlToggleChart(\'' + imgId + '\')" ' +
+              'title="点击切换日线/分时">';
           });
-          document.querySelector('#fin-top-table tbody').innerHTML = html ||
-            '<tr><td colspan="7" style="text-align:center;color:#999">无满足条件股票</td></tr>';
+          document.getElementById('fin-stock-list').innerHTML = html ||
+            '<div class="muted">无满足条件股票</div>';
         })
         .catch(function (e) {
           document.getElementById('fin-date-status').textContent = '加载失败: ' + e;
@@ -493,7 +485,7 @@
     loadFinancialTop();
     loadSectorRank();
 
-    // ============ 14:30 实时扫描 (M22) ============
+    // ============ 实时盘中扫描 (M22+) ============
     function loadRealtimeScan() {
       var limit = parseInt(document.getElementById('rt-limit').value) || 50;
       var mode = document.getElementById('rt-mode').value;
@@ -503,11 +495,11 @@
       fetch('/api/scan/realtime?limit=' + limit + '&mode=' + mode)
         .then(function (r) { return r.json(); })
         .then(function (d) {
+          var listEl = document.getElementById('rt-stock-list');
           if (!d.scan_time) {
             document.getElementById('rt-scan-info').textContent = '暂无数据';
             document.getElementById('rt-count').innerHTML = '';
-            document.querySelector('#rt-table tbody').innerHTML =
-              '<tr><td colspan="6" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py --mode=' + mode + '）</td></tr>';
+            listEl.innerHTML = '<div class="muted">请先运行扫描脚本（src/screen/realtime_scan.py --mode=' + mode + '）</div>';
             return;
           }
           document.getElementById('rt-scan-info').textContent =
@@ -521,27 +513,41 @@
             var pctStr = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
             var middle = '';
             if (mode === 'strong_holdup') {
-              middle = 'MA20=' + (r.ma20 || 0).toFixed(2) + '<br>回撤=' + (r.pullback_pct || 0).toFixed(2) + '%';
+              middle = 'MA20=' + (r.ma20 || 0).toFixed(2) + ' | 回撤=' + (r.pullback_pct || 0).toFixed(2) + '%';
             } else if (mode === 'limit_pullback') {
-              middle = '涨停:' + (r.limit_up_date || '') + ' 收' + (r.limit_up_close || 0).toFixed(2) + '<br>回踩:' + (r.pullback_date || '') + ' 收' + (r.pullback_close || 0).toFixed(2);
+              middle = '涨停:' + (r.limit_up_date || '') + ' 收' + (r.limit_up_close || 0).toFixed(2) + ' → 回踩:' + (r.pullback_date || '') + ' 收' + (r.pullback_close || 0).toFixed(2);
             } else if (mode === 'volatility_breakout') {
-              middle = '波动=' + (r.volatility_pct || 0).toFixed(2) + '%<br>量比=' + (r.volume_ratio || 0).toFixed(2) + '×';
+              middle = '波动=' + (r.volatility_pct || 0).toFixed(2) + '% | 量比=' + (r.volume_ratio || 0).toFixed(2) + '×';
             } else if (mode === 'macd_second_golden') {
-              middle = 'MACD零轴下方<br>二次金叉';
+              middle = 'MACD零轴下方二次金叉';
             } else {
-              middle = (r.prev_breakout_date || '') + '<br>收=' + (r.prev_breakout_close || 0).toFixed(2);
+              middle = '前次突破:' + (r.prev_breakout_date || '') + ' 收' + (r.prev_breakout_close || 0).toFixed(2);
             }
-            html += '<tr>' +
-              '<td>' + r.dm + '</td>' +
-              '<td>' + r.mc + '</td>' +
-              '<td>' + r.current_price.toFixed(2) + '</td>' +
-              '<td class="' + pctClass + '">' + pctStr + '</td>' +
-              '<td>' + middle + '</td>' +
-              '<td>' + r.stop_loss.toFixed(2) + '</td>' +
-              '</tr>';
+            // K 线图：新浪日线/分时
+            var code6 = r.dm.replace(/\D/g, '').slice(0, 6);
+            var prefix = code6.charAt(0) === '6' ? 'sh' : (code6.charAt(0) === '4' || code6.charAt(0) === '8' ? 'bj' : 'sz');
+            var dailyUrl = 'https://image.sinajs.cn/newchart/daily/n/' + prefix + code6 + '.gif';
+            var minuteUrl = 'https://image.sinajs.cn/newchart/minute/n/' + prefix + code6 + '.gif';
+            var imgId = 'rt-img-' + r.dm + '-' + Date.now();
+
+            html += '<div class="stock-item" style="padding:10px 0;border-bottom:1px solid #f0f0f0">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main">' +
+              '<span style="color:var(--primary);font-weight:600">' + r.dm + ' ' + r.mc + '</span>' +
+              '</div>' +
+              '<span class="' + pctClass + '">' + pctStr + '</span>' +
+              '</div>' +
+              '<div style="margin-top:4px;font-size:12px;color:#666">' +
+              '当前价 ' + (r.current_price || 0).toFixed(2) + ' | 止损 ' + (r.stop_loss || 0).toFixed(2) + '<br>' +
+              '<span style="color:#888">' + middle + '</span>' +
+              '</div>' +
+              '<img id="' + imgId + '" src="' + dailyUrl + '" ' +
+              'data-minute="' + minuteUrl + '" data-daily="' + dailyUrl + '" ' +
+              'style="width:100%;max-width:520px;height:auto;border-radius:6px;cursor:pointer;margin-top:6px" ' +
+              'onclick="wlToggleChart(\'' + imgId + '\')" ' +
+              'title="点击切换日线/分时">';
           });
-          document.querySelector('#rt-table tbody').innerHTML = html ||
-            '<tr><td colspan="6" style="text-align:center;color:#999">无候选</td></tr>';
+          listEl.innerHTML = html || '<div class="muted">无候选</div>';
         })
         .catch(function (e) {
           document.getElementById('rt-scan-info').textContent = '加载失败: ' + e;
