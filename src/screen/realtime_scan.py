@@ -108,6 +108,86 @@ def load_klines(conn, days=60):
     return klines
 
 
+def find_volatility_breakout(current_price, bars):
+    """
+    波动收敛突破（盘中实时）
+    A: 同时满足
+    1. 最近 20 个自然日内 (max(high) - min(low)) / min(low) <= 0.08
+    2. 今天: 阳线 (close > open) + 收盘 > MA5/MA10/MA20
+    3. 今天: 放量 (量 > 5日均量 × 1.5)
+    盘中实时: 实时价作为今日 close, 量用今日已累计量
+    止损: 20 日最低 × 0.97
+    """
+    if len(bars) < 25:
+        return None
+
+    today_idx = len(bars) - 1
+    today_bar = bars[today_idx]
+    real_c = current_price
+
+    # 1. 计算 20 个自然日窗口（约 14-16 个 K 线）
+    # 取最近 20 个 K 线（实际已经是交易日，~14-16 天）
+    window = bars[max(0, today_idx - 19): today_idx + 1]
+    if len(window) < 15:  # 至少 15 个交易日
+        return None
+
+    highs = [b['h'] for b in window if b['h'] is not None]
+    lows = [b['l'] for b in window if b['l'] is not None]
+    if not highs or not lows:
+        return None
+
+    high_20 = max(highs)
+    low_20 = min(lows)
+    if low_20 <= 0:
+        return None
+
+    volatility = (high_20 - low_20) / low_20
+    if volatility > 0.08:
+        return None
+
+    # 2. 今天一阳穿三线
+    today_open = today_bar['o']
+    if today_open is None or real_c <= today_open:
+        # 实时价需要 > 开盘价（阳线条件）
+        return None
+
+    ma5 = sum([b['c'] for b in bars[today_idx - 4: today_idx + 1] if b['c'] is not None]) / 5
+    ma10 = sum([b['c'] for b in bars[today_idx - 9: today_idx + 1] if b['c'] is not None]) / 10
+    ma20 = sum([b['c'] for b in bars[today_idx - 19: today_idx + 1] if b['c'] is not None]) / 20
+
+    if not (real_c > ma5 > ma10 > ma20):
+        return None
+
+    # 3. 放量（用 K 线的 v 字段，今天的量）
+    today_vol = today_bar['v']
+    if today_vol is None or today_vol <= 0:
+        return None
+
+    vols_5 = [b['v'] for b in bars[today_idx - 4: today_idx + 1] if b['v'] is not None]
+    if len(vols_5) < 5:
+        return None
+    avg_vol_5 = sum(vols_5[:-1]) / max(1, len(vols_5) - 1)
+
+    if today_vol < avg_vol_5 * 1.5:
+        return None
+
+    return {
+        'B_idx': today_idx,
+        'B_date': today_bar['t'],
+        'B_close': real_c,  # 用实时价
+        'B_low': float(low_20),
+        'B_high': float(high_20),
+        'days_back': 0,
+        'middle_days': [],
+        'volatility_pct': round(volatility * 100, 2),
+        'ma5': round(ma5, 2),
+        'ma10': round(ma10, 2),
+        'ma20': round(ma20, 2),
+        'volume_ratio': round(today_vol / avg_vol_5, 2),
+        'stop_loss': round(float(low_20) * 0.97, 2),
+    }
+
+
 def find_limit_pullback(current_price, bars):
     """
     涨停回马枪（盘中实时）
@@ -337,6 +417,7 @@ def save_results(conn, candidates, scan_time, mode='second_breakout'):
     table_map = {
         'strong_holdup': 'scan_realtime_strong',
         'limit_pullback': 'scan_realtime_limit',
+        'volatility_breakout': 'scan_realtime_volatility',
         'second_breakout': 'scan_realtime',
     }
     table = table_map.get(mode, 'scan_realtime')
@@ -420,6 +501,31 @@ def save_results(conn, candidates, scan_time, mode='second_breakout'):
              stop_loss, detail)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, rows)
+    elif mode == 'volatility_breakout':
+        # 波动收敛突破字段集
+        rows = []
+        for c in candidates:
+            rows.append((
+                c['dm'], c['mc'], scan_time,
+                c['current_price'], c['prev_close'], round(c['pct_change'], 2),
+                c.get('volatility_pct'), c.get('ma5'), c.get('ma10'), c.get('ma20'),
+                c.get('volume_ratio'), c.get('stop_loss'),
+                json.dumps({
+                    'volatility_pct': c.get('volatility_pct'),
+                    'ma5': c.get('ma5'),
+                    'ma10': c.get('ma10'),
+                    'ma20': c.get('ma20'),
+                    'volume_ratio': c.get('volume_ratio'),
+                }, ensure_ascii=False, default=str)
+            ))
+        cur.executemany(f"""
+            INSERT INTO {table}
+            (dm, mc, scan_time,
+             current_price, prev_close, pct_change,
+             volatility_pct, ma5, ma10, ma20,
+             volume_ratio, stop_loss, detail)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, rows)
     conn.commit()
     return len(rows)
 
@@ -428,8 +534,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='14:30 实时扫描')
     parser.add_argument('--mode', default='second_breakout',
-                        choices=['second_breakout', 'strong_holdup', 'limit_pullback'],
-                        help='扫描算法: second_breakout 二次突破 / strong_holdup 强势股不跌 / limit_pullback 涨停回马枪')
+                        choices=['second_breakout', 'strong_holdup', 'limit_pullback', 'volatility_breakout'],
+                        help='扫描算法: second_breakout 二次突破 / strong_holdup 强势股不跌 / limit_pullback 涨停回马枪 / volatility_breakout 波动收敛突破')
     args = parser.parse_args()
 
     # 算法选择
@@ -441,10 +547,14 @@ def main():
         scan_func = find_strong_holdup
         algo_name = '强势股不跌'
         algo_desc = '当前>MA20 + 5日回撤<5% + 接近5日高 + 量能不缩'
-    else:  # limit_pullback
+    elif args.mode == 'limit_pullback':
         scan_func = find_limit_pullback
         algo_name = '涨停回马枪'
         algo_desc = '近5日内涨停+回踩(缩量+不破涨停收盘)+企稳'
+    else:  # volatility_breakout
+        scan_func = find_volatility_breakout
+        algo_name = '波动收敛突破'
+        algo_desc = '20日波动<=8% + 一阳穿三线 + 放量(1.5×)'
 
     print('=' * 80)
     print(f'14:30 实时扫描 [{algo_name}]')
@@ -505,6 +615,10 @@ def main():
                 'pullback_date': result.get('pullback_date'),
                 'pullback_close': result.get('pullback_close'),
                 'pullback_low': result.get('pullback_low'),
+                'volatility_pct': result.get('volatility_pct'),
+                'ma5': result.get('ma5'),
+                'ma10': result.get('ma10'),
+                'volume_ratio': result.get('volume_ratio'),
             })
 
     # 按 B 距今天数 + 涨幅排序

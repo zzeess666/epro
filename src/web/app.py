@@ -1111,10 +1111,11 @@ def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
 
 @app.get("/api/scan/realtime")
 def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
-    """14:30 实时扫描结果（按 mode 区分: second_breakout 二次突破 / strong_holdup 强势股 / limit_pullback 涨停回马枪）"""
+    """14:30 实时扫描结果（按 mode 区分）"""
     table_map = {
         'strong_holdup': 'scan_realtime_strong',
         'limit_pullback': 'scan_realtime_limit',
+        'volatility_breakout': 'scan_realtime_volatility',
         'second_breakout': 'scan_realtime',
     }
     table = table_map.get(mode, 'scan_realtime')
@@ -1141,6 +1142,16 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
             SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
                    limit_up_date, limit_up_close, pullback_date,
                    pullback_close, pullback_low,
+                   stop_loss, detail
+            FROM {table}
+            WHERE scan_time = %s
+            ORDER BY pct_change DESC
+            LIMIT %s
+        """, (latest, limit))
+    elif mode == 'volatility_breakout':
+        cur.execute(f"""
+            SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
+                   volatility_pct, ma5, ma10, ma20, volume_ratio,
                    stop_loss, detail
             FROM {table}
             WHERE scan_time = %s
@@ -1234,6 +1245,14 @@ def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
                 'pullback_date': r['pullback_date'].isoformat() if r['pullback_date'] else None,
                 'pullback_close': float(r['pullback_close'] or 0),
                 'pullback_low': float(r['pullback_low'] or 0),
+            })
+        elif mode == 'volatility_breakout':
+            item.update({
+                'volatility_pct': float(r['volatility_pct'] or 0),
+                'ma5': float(r['ma5'] or 0),
+                'ma10': float(r['ma10'] or 0),
+                'ma20': float(r['ma20'] or 0),
+                'volume_ratio': float(r['volume_ratio'] or 0),
             })
         else:
             item.update({

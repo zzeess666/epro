@@ -199,6 +199,7 @@
                 <option value="second_breakout">二次突破（B日=2-4天前最高 + 中间日<B收 + 当前>B收）</option>
                 <option value="strong_holdup">强势股不跌（当前>MA20 + 5日回撤<5% + 接近新高 + 量能不缩）</option>
                 <option value="limit_pullback">涨停回马枪（近5日涨停+缩量回踩+企稳）</option>
+                <option value="volatility_breakout">波动收敛突破（20日波动≤8% + 一阳穿三线 + 放量1.5×）</option>
                 <option value="macd_second_golden">MACD零轴下方二次金叉（DIF<0 + 金叉 + 30天内死叉 + 30-60天前金叉）</option>
               </select>
             </label>
@@ -496,7 +497,7 @@
     function loadRealtimeScan() {
       var limit = parseInt(document.getElementById('rt-limit').value) || 50;
       var mode = document.getElementById('rt-mode').value;
-      var algoName = mode === 'strong_holdup' ? '强势股不跌' : (mode === 'limit_pullback' ? '涨停回马枪' : '二次突破');
+      var algoName = mode === 'strong_holdup' ? '强势股不跌' : (mode === 'limit_pullback' ? '涨停回马枪' : (mode === 'volatility_breakout' ? '波动收敛突破' : (mode === 'macd_second_golden' ? 'MACD二次金叉' : '二次突破')));
       document.getElementById('rt-algo-name').textContent = algoName;
       document.getElementById('rt-scan-info').textContent = '加载中…';
       fetch('/api/scan/realtime?limit=' + limit + '&mode=' + mode)
@@ -523,6 +524,10 @@
               middle = 'MA20=' + (r.ma20 || 0).toFixed(2) + '<br>回撤=' + (r.pullback_pct || 0).toFixed(2) + '%';
             } else if (mode === 'limit_pullback') {
               middle = '涨停:' + (r.limit_up_date || '') + ' 收' + (r.limit_up_close || 0).toFixed(2) + '<br>回踩:' + (r.pullback_date || '') + ' 收' + (r.pullback_close || 0).toFixed(2);
+            } else if (mode === 'volatility_breakout') {
+              middle = '波动=' + (r.volatility_pct || 0).toFixed(2) + '%<br>量比=' + (r.volume_ratio || 0).toFixed(2) + '×';
+            } else if (mode === 'macd_second_golden') {
+              middle = 'MACD零轴下方<br>二次金叉';
             } else {
               middle = (r.prev_breakout_date || '') + '<br>收=' + (r.prev_breakout_close || 0).toFixed(2);
             }
