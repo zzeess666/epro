@@ -1110,46 +1110,69 @@ def _jsonable(row: dict[str, Any]) -> dict[str, Any]:
 # ============ 14:30 实时扫描 API (M22) ============
 
 @app.get("/api/scan/realtime")
-def api_scan_realtime(limit: int = 50):
-    """14:30 实时二次突破扫描结果（最新一次扫描）"""
+def api_scan_realtime(limit: int = 50, mode: str = "second_breakout"):
+    """14:30 实时扫描结果（按 mode 区分: second_breakout 二次突破 / strong_holdup 强势股不跌）"""
+    table = 'scan_realtime_strong' if mode == 'strong_holdup' else 'scan_realtime'
     conn = get_connection()
     cur = conn.cursor()
-    # 最新扫描时间
-    cur.execute("SELECT MAX(scan_time) AS t FROM scan_realtime")
+    cur.execute(f"SELECT MAX(scan_time) AS t FROM {table}")
     latest = cur.fetchone()['t']
     if not latest:
         conn.close()
-        return JSONResponse({"scan_time": None, "items": []})
+        return JSONResponse({"scan_time": None, "mode": mode, "items": []})
 
-    cur.execute("""
-        SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
-               prev_breakout_date, prev_breakout_close, prev_breakout_high,
-               stop_loss, detail
-        FROM scan_realtime
-        WHERE scan_time = %s
-        ORDER BY pct_change DESC
-        LIMIT %s
-    """, (latest, limit))
+    if mode == 'strong_holdup':
+        cur.execute(f"""
+            SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
+                   trigger_date, ma20, pullback_pct, past_5_high,
+                   stop_loss, detail
+            FROM {table}
+            WHERE scan_time = %s
+            ORDER BY pct_change DESC
+            LIMIT %s
+        """, (latest, limit))
+    else:
+        cur.execute(f"""
+            SELECT dm, mc, scan_time, current_price, prev_close, pct_change,
+                   prev_breakout_date, prev_breakout_close, prev_breakout_high,
+                   stop_loss, detail
+            FROM {table}
+            WHERE scan_time = %s
+            ORDER BY pct_change DESC
+            LIMIT %s
+        """, (latest, limit))
     rows = cur.fetchall()
     conn.close()
 
     items = []
     for r in rows:
-        items.append({
+        item = {
             'dm': r['dm'],
             'mc': r['mc'],
             'scan_time': r['scan_time'].isoformat() if r['scan_time'] else None,
             'current_price': float(r['current_price'] or 0),
             'prev_close': float(r['prev_close'] or 0),
             'pct_change': float(r['pct_change'] or 0),
-            'prev_breakout_date': r['prev_breakout_date'].isoformat() if r['prev_breakout_date'] else None,
-            'prev_breakout_close': float(r['prev_breakout_close'] or 0),
-            'prev_breakout_high': float(r['prev_breakout_high'] or 0),
             'stop_loss': float(r['stop_loss'] or 0),
-        })
+        }
+        if mode == 'strong_holdup':
+            item.update({
+                'trigger_date': r['trigger_date'].isoformat() if r['trigger_date'] else None,
+                'ma20': float(r['ma20'] or 0),
+                'pullback_pct': float(r['pullback_pct'] or 0),
+                'past_5_high': float(r['past_5_high'] or 0),
+            })
+        else:
+            item.update({
+                'prev_breakout_date': r['prev_breakout_date'].isoformat() if r['prev_breakout_date'] else None,
+                'prev_breakout_close': float(r['prev_breakout_close'] or 0),
+                'prev_breakout_high': float(r['prev_breakout_high'] or 0),
+            })
+        items.append(item)
 
     return JSONResponse({
         "scan_time": latest.isoformat() if latest else None,
+        "mode": mode,
         "count": len(items),
         "items": items
     })

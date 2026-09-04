@@ -108,6 +108,73 @@ def load_klines(conn, days=60):
     return klines
 
 
+def find_strong_holdup(current_price, bars):
+    """
+    强势股不跌（盘中实时）
+    A: 当前实时价
+    1. 当前价 > MA20（站上 20 日均线）
+    2. 过去 5 天最大回撤 < 3%（该跌不跌）
+    3. 当前价 >= 5日最高 × 0.97（接近新高）
+    4. 量能 >= 5日均量 × 0.8（量能不缩）
+    止损: 5日最低 × 0.97
+    """
+    if len(bars) < 25:
+        return None
+
+    today_idx = len(bars) - 1
+    today_bar = bars[today_idx]
+    real_c = current_price  # 用实时价
+
+    # 1. MA20
+    closes_20 = [b['c'] for b in bars[today_idx - 19: today_idx + 1] if b['c'] is not None]
+    if len(closes_20) < 20:
+        return None
+    ma20 = sum(closes_20) / 20
+    if real_c <= ma20:
+        return None
+
+    # 5 日窗口
+    last5 = bars[today_idx - 4: today_idx + 1]
+    highs5 = [b['h'] for b in last5 if b['h'] is not None]
+    lows5 = [b['l'] for b in last5 if b['l'] is not None]
+    vols5 = [b['v'] for b in last5 if b['v'] is not None]
+
+    if not highs5 or not lows5 or len(vols5) < 5:
+        return None
+
+    past_5_high = max(highs5)
+    past_5_low = min(lows5)
+
+    # 2. 过去 5 天最大回撤 < 5%（该跌不跌）
+    min_low_5 = past_5_low
+    pullback = (past_5_high - min_low_5) / past_5_high if past_5_high > 0 else 0
+    if pullback >= 0.05:
+        return None
+
+    # 3. 接近新高: real_c >= past_5_high × 0.97
+    if real_c < float(past_5_high) * 0.97:
+        return None
+
+    # 4. 量能不缩
+    avg_vol_5 = sum(vols5[:-1]) / max(1, len(vols5) - 1)
+    today_vol = vols5[-1]
+    if avg_vol_5 <= 0 or today_vol < avg_vol_5 * 0.8:
+        return None
+
+    return {
+        'B_idx': today_idx,
+        'B_date': today_bar['t'],
+        'B_close': today_bar['c'],
+        'B_low': past_5_low,
+        'B_high': past_5_high,
+        'days_back': 0,
+        'middle_days': [],
+        'ma20': round(ma20, 2),
+        'pullback_pct': round(pullback * 100, 2),
+        'stop_loss': round(float(past_5_low) * 0.97, 2),
+    }
+
+
 def find_second_breakout(current_price, bars):
     """
     二次突破判断（你的精确定义）
@@ -179,52 +246,92 @@ def find_second_breakout(current_price, bars):
     return None
 
 
-def save_results(conn, candidates, scan_time):
-    """保存到 scan_realtime 表"""
+def save_results(conn, candidates, scan_time, mode='second_breakout'):
+    """保存到 scan_realtime 表（按 mode 分表）"""
     if not candidates:
         print('  无候选，跳过保存')
         return 0
 
-    cur = conn.cursor()
-    cur.execute("DELETE FROM scan_realtime WHERE scan_time = %s", (scan_time,))
+    table = 'scan_realtime_strong' if mode == 'strong_holdup' else 'scan_realtime'
 
-    rows = []
-    for c in candidates:
-        rows.append((
-            c['dm'], c['mc'], scan_time,
-            c['current_price'], c['prev_close'], round(c['pct_change'], 2),
-            c['B_date'], c['B_close'], c['B_high'],
-            round(float(c['B_low']) * 0.98, 2),  # 止损 = B低 × 0.98
-            json.dumps({
-                'B_date': str(c['B_date']),
-                'B_close': c['B_close'],
-                'B_low': c['B_low'],
-                'days_back': c['days_back'],
-                'middle_days': [str(d) for d in c['middle_days']],
-            }, ensure_ascii=False, default=str)
-        ))
-    cur.executemany("""
-        INSERT INTO scan_realtime
-        (dm, mc, scan_time,
-         current_price, prev_close, pct_change,
-         prev_breakout_date, prev_breakout_close, prev_breakout_high,
-         stop_loss, detail)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """, rows)
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {table} WHERE scan_time = %s", (scan_time,))
+
+    if mode == 'strong_holdup':
+        # 强势股字段集
+        rows = []
+        for c in candidates:
+            rows.append((
+                c['dm'], c['mc'], scan_time,
+                c['current_price'], c['prev_close'], round(c['pct_change'], 2),
+                c['B_date'], c.get('ma20'), c.get('pullback_pct'),
+                c.get('B_high'), c.get('stop_loss'),
+                json.dumps({
+                    'trigger_date': str(c['B_date']),
+                    'ma20': c.get('ma20'),
+                    'pullback_pct': c.get('pullback_pct'),
+                    'past_5_high': c.get('B_high'),
+                }, ensure_ascii=False, default=str)
+            ))
+        cur.executemany(f"""
+            INSERT INTO {table}
+            (dm, mc, scan_time,
+             current_price, prev_close, pct_change,
+             trigger_date, ma20, pullback_pct,
+             past_5_high, stop_loss, detail)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, rows)
+    else:
+        # 二次突破字段集
+        rows = []
+        for c in candidates:
+            rows.append((
+                c['dm'], c['mc'], scan_time,
+                c['current_price'], c['prev_close'], round(c['pct_change'], 2),
+                c['B_date'], c['B_close'], c['B_high'],
+                round(float(c['B_low']) * 0.98, 2),
+                json.dumps({
+                    'B_date': str(c['B_date']),
+                    'B_close': c['B_close'],
+                    'B_low': c['B_low'],
+                    'days_back': c['days_back'],
+                    'middle_days': [str(d) for d in c['middle_days']],
+                }, ensure_ascii=False, default=str)
+            ))
+        cur.executemany(f"""
+            INSERT INTO {table}
+            (dm, mc, scan_time,
+             current_price, prev_close, pct_change,
+             prev_breakout_date, prev_breakout_close, prev_breakout_high,
+             stop_loss, detail)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, rows)
     conn.commit()
     return len(rows)
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description='14:30 实时扫描')
+    parser.add_argument('--mode', default='second_breakout',
+                        choices=['second_breakout', 'strong_holdup'],
+                        help='扫描算法: second_breakout 二次突破 / strong_holdup 强势股不跌')
+    args = parser.parse_args()
+
+    # 算法选择
+    if args.mode == 'second_breakout':
+        scan_func = find_second_breakout
+        algo_name = '二次突破'
+        algo_desc = 'B日=2-4天前收盘=前30天最高 + 中间日<B收 + 当前>B收'
+    else:  # strong_holdup
+        scan_func = find_strong_holdup
+        algo_name = '强势股不跌'
+        algo_desc = '当前>MA20 + 5日回撤<5% + 接近5日高 + 量能不缩'
+
     print('=' * 80)
-    print('14:30 实时二次突破扫描（按你的精确定义）')
+    print(f'14:30 实时扫描 [{algo_name}]')
     print('=' * 80)
-    print('定义:')
-    print('  B日 = 今天之前 2~4 个交易日')
-    print('  B 日收盘 = B-30 ~ B-1 的最高收盘（不含 B 日）')
-    print('  中间日（B+1 到 今天-1）收盘 < B 收')
-    print('  当前实时价 > B 收')
-    print('  止损 = B 低 × 0.98')
+    print(f'算法: {algo_desc}')
     print()
 
     conn = pymysql.connect(**DB)
@@ -254,12 +361,12 @@ def main():
             print(f'  {i+len(batch)}/{len(all_stocks)} 拉取到{len(realtime)} 耗时{elapsed:.1f}秒')
     print(f'共拉取到 {len(realtime)} 只实时价，耗时 {time.time()-t0:.1f}秒')
 
-    # 4. 扫描二次突破
-    print('\n扫描二次突破...')
+    # 4. 扫描
+    print(f'\n扫描[{algo_name}]...')
     candidates = []
     for dm, rt in realtime.items():
         bars = klines.get(dm, [])
-        result = find_second_breakout(rt['current'], bars)
+        result = scan_func(rt['current'], bars)
         if result:
             candidates.append({
                 'dm': dm,
@@ -270,9 +377,11 @@ def main():
                 'B_date': result['B_date'],
                 'B_close': result['B_close'],
                 'B_low': result['B_low'],
-                'B_high': result['B_high'],
+                'B_high': result.get('B_high'),
                 'days_back': result['days_back'],
                 'middle_days': result['middle_days'],
+                'ma20': result.get('ma20'),
+                'pullback_pct': result.get('pullback_pct'),
             })
 
     # 按 B 距今天数 + 涨幅排序
@@ -282,7 +391,7 @@ def main():
 
     # 5. 保存
     scan_time = datetime.now()
-    saved = save_results(conn, candidates, scan_time)
+    saved = save_results(conn, candidates, scan_time, mode=args.mode)
     print(f'\n保存 {saved} 条到 scan_realtime 表')
     print(f'扫描时间: {scan_time}')
 

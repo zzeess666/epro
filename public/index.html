@@ -187,15 +187,19 @@
       <div class="panel">
         <div class="card">
           <div class="card-head">
-            <span>14:30 实时二次突破扫描</span>
+            <span>14:30 实时盘中扫描</span>
             <span class="meta" id="rt-scan-info"></span>
           </div>
           <div class="meta" style="margin-bottom:8px">
-            扫描逻辑：当前价 &gt; 过去4天最高点（缓冲0.5%），
-            且过去4天内有过"前次突破"（收盘价突破前期高点），
-            同时当前价 ≥ 前次突破日收盘价
+            实时计算全市场, 找出符合形态的股票。当前算法: <strong id="rt-algo-name">二次突破</strong>
           </div>
           <div class="filter-row">
+            <label>算法:
+              <select id="rt-mode">
+                <option value="second_breakout">二次突破（B日=2-4天前最高 + 中间日<B收 + 当前>B收）</option>
+                <option value="strong_holdup">强势股不跌（当前>MA20 + 5日回撤<5% + 接近新高 + 量能不缩）</option>
+              </select>
+            </label>
             <label>显示<input type="number" id="rt-limit" value="50" min="5" max="500" step="5"></label>
             <button type="button" id="rt-refresh-btn" class="btn">刷新</button>
           </div>
@@ -489,19 +493,22 @@
     // ============ 14:30 实时扫描 (M22) ============
     function loadRealtimeScan() {
       var limit = parseInt(document.getElementById('rt-limit').value) || 50;
+      var mode = document.getElementById('rt-mode').value;
+      var algoName = mode === 'strong_holdup' ? '强势股不跌' : '二次突破';
+      document.getElementById('rt-algo-name').textContent = algoName;
       document.getElementById('rt-scan-info').textContent = '加载中…';
-      fetch('/api/scan/realtime?limit=' + limit)
+      fetch('/api/scan/realtime?limit=' + limit + '&mode=' + mode)
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (!d.scan_time) {
             document.getElementById('rt-scan-info').textContent = '暂无数据';
             document.getElementById('rt-count').innerHTML = '';
             document.querySelector('#rt-table tbody').innerHTML =
-              '<tr><td colspan="6" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py）</td></tr>';
+              '<tr><td colspan="6" style="text-align:center;color:#999">请先运行扫描脚本（src/screen/realtime_scan.py --mode=' + mode + '）</td></tr>';
             return;
           }
           document.getElementById('rt-scan-info').textContent =
-            '扫描时间: ' + d.scan_time + ' | 共 ' + d.count + ' 只候选';
+            '[' + algoName + '] 扫描时间: ' + d.scan_time + ' | 共 ' + d.count + ' 只候选';
           document.getElementById('rt-count').innerHTML = '';
 
           var html = '';
@@ -509,13 +516,18 @@
             var pct = r.pct_change || 0;
             var pctClass = pct > 0 ? 'up' : 'down';
             var pctStr = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
+            var middle = '';
+            if (mode === 'strong_holdup') {
+              middle = 'MA20=' + (r.ma20 || 0).toFixed(2) + '<br>回撤=' + (r.pullback_pct || 0).toFixed(2) + '%';
+            } else {
+              middle = (r.prev_breakout_date || '') + '<br>收=' + (r.prev_breakout_close || 0).toFixed(2);
+            }
             html += '<tr>' +
               '<td>' + r.dm + '</td>' +
               '<td>' + r.mc + '</td>' +
               '<td>' + r.current_price.toFixed(2) + '</td>' +
               '<td class="' + pctClass + '">' + pctStr + '</td>' +
-              '<td>' + r.prev_breakout_date + '</td>' +
-              '<td>' + r.prev_breakout_close.toFixed(2) + '</td>' +
+              '<td>' + middle + '</td>' +
               '<td>' + r.stop_loss.toFixed(2) + '</td>' +
               '</tr>';
           });
@@ -527,6 +539,7 @@
         });
     }
     document.getElementById('rt-refresh-btn').addEventListener('click', loadRealtimeScan);
+    document.getElementById('rt-mode').addEventListener('change', loadRealtimeScan);
     loadRealtimeScan();
 
     function retClass(v) {
