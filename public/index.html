@@ -142,33 +142,13 @@
         </div>
 
         <div class="card">
-          <div class="card-head">纯财务 Top 选股（无技术过滤）</div>
-          <div class="table-wrap" style="max-height:360px;overflow-y:auto">
-            <table class="data-table" id="fin-pure-top-table">
-              <thead>
-                <tr>
-                  <th>代码</th><th>名称</th><th>ROE%</th><th>毛利率%</th>
-                  <th>负债率%</th><th>营收%</th><th>利润%</th><th>评分</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <div class="card-head">纯财务 Top 选股（无技术过滤，点击图片切换日线/分时）</div>
+          <div id="fin-pure-stock-list" style="max-height:600px;overflow-y:auto"></div>
         </div>
 
         <div class="card">
           <div class="card-head">申万一级行业排名（按 ROE 均值）</div>
-          <div class="table-wrap" style="max-height:360px;overflow-y:auto">
-            <table class="data-table" id="fin-sector-table">
-              <thead>
-                <tr>
-                  <th>行业</th><th>股票数</th><th>ROE%</th><th>毛利率%</th>
-                  <th>营收增%</th><th>利润增%</th><th>高ROE数</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+          <div id="fin-sector-list" style="max-height:360px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -439,18 +419,34 @@
         .then(function (d) {
           var html = '';
           (d.top || []).forEach(function (r) {
-            html += '<tr>' +
-              '<td>' + r.dm + '</td>' +
-              '<td>' + r.mc + '</td>' +
-              '<td class="up">' + r.roe_ttm.toFixed(2) + '</td>' +
-              '<td>' + r.gross_margin.toFixed(2) + '</td>' +
-              '<td>' + r.debt_ratio.toFixed(2) + '</td>' +
-              '<td class="up">' + r.rev_yoy.toFixed(2) + '</td>' +
-              '<td class="up">' + r.profit_yoy.toFixed(2) + '</td>' +
-              '<td><b>' + r.score.toFixed(2) + '</b></td>' +
-              '</tr>';
+            var code6 = r.dm.replace(/\D/g, '').slice(0, 6);
+            var prefix = code6.charAt(0) === '6' ? 'sh' : (code6.charAt(0) === '4' || code6.charAt(0) === '8' ? 'bj' : 'sz');
+            var dailyUrl = 'https://image.sinajs.cn/newchart/daily/n/' + prefix + code6 + '.gif';
+            var minuteUrl = 'https://image.sinajs.cn/newchart/minute/n/' + prefix + code6 + '.gif';
+            var imgId = 'finpure-img-' + r.dm + '-' + Date.now();
+
+            html += '<div class="stock-item" style="padding:10px 0;border-bottom:1px solid #f0f0f0">' +
+              '<div class="stock-title">' +
+              '<div class="stock-title-main">' +
+              '<span style="color:var(--primary);font-weight:600">' + r.dm + ' ' + r.mc + '</span>' +
+              '</div>' +
+              '<span style="font-weight:600">评分 ' + r.score.toFixed(1) + '</span>' +
+              '</div>' +
+              '<div style="margin-top:4px;font-size:12px;color:#666">' +
+              'ROE ' + r.roe_ttm.toFixed(2) + '% | 毛利 ' + r.gross_margin.toFixed(2) + '% | 负债 ' + r.debt_ratio.toFixed(2) + '%<br>' +
+              '营收增 ' + r.rev_yoy.toFixed(2) + '% | 利润增 ' + r.profit_yoy.toFixed(2) + '%' +
+              '</div>' +
+              '<img id="' + imgId + '" src="' + dailyUrl + '" ' +
+              'data-minute="' + minuteUrl + '" data-daily="' + dailyUrl + '" ' +
+              'style="width:100%;max-width:520px;height:auto;border-radius:6px;cursor:pointer;margin-top:6px" ' +
+              'onclick="wlToggleChart(\'' + imgId + '\')" ' +
+              'title="点击切换日线/分时">';
           });
-          document.querySelector('#fin-pure-top-table tbody').innerHTML = html;
+          document.getElementById('fin-pure-stock-list').innerHTML = html ||
+            '<div class="muted">无满足条件股票</div>';
+        })
+        .catch(function (e) {
+          console.error('pure fin top load failed', e);
         });
     }
 
@@ -460,19 +456,27 @@
         .then(function (d) {
           var html = '';
           (d.sectors || []).forEach(function (r) {
-            html += '<tr>' +
-              '<td>' + r.name + '</td>' +
-              '<td>' + r.stock_count + '</td>' +
-              '<td class="up">' + r.avg_roe.toFixed(2) + '</td>' +
-              '<td>' + r.avg_gross_margin.toFixed(2) + '</td>' +
-              '<td class="' + (r.avg_rev_yoy >= 0 ? 'up' : 'down') + '">' +
-              r.avg_rev_yoy.toFixed(2) + '</td>' +
-              '<td class="' + (r.avg_profit_yoy >= 0 ? 'up' : 'down') + '">' +
-              r.avg_profit_yoy.toFixed(2) + '</td>' +
-              '<td>' + r.high_roe_count + '</td>' +
-              '</tr>';
+            var roeClass = r.avg_roe >= 10 ? 'up' : (r.avg_roe < 0 ? 'down' : '');
+            var revClass = r.avg_rev_yoy >= 0 ? 'up' : 'down';
+            var profitClass = r.avg_profit_yoy >= 0 ? 'up' : 'down';
+            html += '<div class="stock-item" style="padding:8px 12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">' +
+              '<div style="flex:1">' +
+              '<div style="font-weight:600">' + r.name + '</div>' +
+              '<div style="font-size:12px;color:#666;margin-top:4px">' +
+              '股票 ' + r.stock_count + ' | 高ROE ' + r.high_roe_count + ' | 毛利 ' + r.avg_gross_margin.toFixed(1) + '%' +
+              '</div>' +
+              '</div>' +
+              '<div style="text-align:right;font-size:13px">' +
+              '<div class="' + roeClass + '" style="font-weight:600">ROE ' + r.avg_roe.toFixed(1) + '%</div>' +
+              '<div style="margin-top:2px">' +
+              '<span class="' + revClass + '" style="font-size:11px;margin-right:8px">营增 ' + r.avg_rev_yoy.toFixed(1) + '%</span>' +
+              '<span class="' + profitClass + '" style="font-size:11px">利增 ' + r.avg_profit_yoy.toFixed(1) + '%</span>' +
+              '</div>' +
+              '</div>' +
+              '</div>';
           });
-          document.querySelector('#fin-sector-table tbody').innerHTML = html;
+          document.getElementById('fin-sector-list').innerHTML = html ||
+            '<div class="muted">暂无数据</div>';
         })
         .catch(function (e) {
           console.error('sector rank load failed', e);
